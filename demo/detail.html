@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>concept-tree</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+  <div class="header" id="page-header">
+    <button class="hamburger" id="detail-hamburger" aria-label="Menu">☰</button>
+    <h1><a href="/">concept-tree</a></h1>
+    <span class="hint" id="breadcrumb"></span>
+    <div class="header-actions">
+      <select class="theme-select" id="theme-select" title="Color scheme">
+        <option value="dark">dark</option>
+        <option value="midnight">midnight</option>
+        <option value="forest">forest</option>
+        <option value="warm">warm</option>
+        <option value="light">light</option>
+      </select>
+      <button class="btn" onclick="history.back()">back</button>
+      <button class="btn btn-accent" onclick="location.href='/'">tree view</button>
+    </div>
+  </div>
+
+  <!-- Mobile nav overlay backdrop -->
+  <div class="sidebar-overlay" id="detail-nav-overlay"></div>
+
+  <div class="detail-layout">
+    <!-- Left nav sidebar: concept hierarchy -->
+    <nav class="detail-nav-sidebar" id="detail-nav-sidebar">
+      <span class="detail-nav-label">concept map</span>
+      <ul class="nav-tree" id="nav-tree"></ul>
+    </nav>
+
+    <div class="detail-scroll">
+      <div class="detail-content" id="detail-content">
+        <p style="color:var(--text3)">loading...</p>
+      </div>
+      <div class="detail-meta" id="detail-meta"></div>
+    </div>
+  </div>
+
+  <!-- Corner minimap (top-right) -->
+  <div class="minimap-tile" id="minimap-tile">
+    <div class="minimap-hdr" id="minimap-hdr">
+      <span class="minimap-hdr-title">concept map</span>
+      <button class="minimap-hdr-btn" id="minimap-toggle" title="Collapse">▾</button>
+    </div>
+    <div class="minimap-body" id="minimap-body"></div>
+  </div>
+
+  <script>
+    // Mobile hamburger — toggles detail nav sidebar
+    const _ham  = document.getElementById("detail-hamburger");
+    const _nav  = document.getElementById("detail-nav-sidebar");
+    const _over = document.getElementById("detail-nav-overlay");
+    function _openNav()  { _nav.classList.add("open");  _over.classList.add("visible"); }
+    function _closeNav() { _nav.classList.remove("open"); _over.classList.remove("visible"); }
+    _ham.addEventListener("click",  () => _nav.classList.contains("open") ? _closeNav() : _openNav());
+    _over.addEventListener("click", _closeNav);
+  </script>
+
+  <script type="module">
+    import { parseFrontmatter, buildConceptTree, renderMarkdown } from "/src/markdown.js";
+    import { ConceptTree } from "/src/index.js";
+    import { TAG_COLORS, THEMES } from "/src/palette.js";
+
+    const params    = new URLSearchParams(window.location.search);
+    const conceptId = params.get("id");
+
+    // ── Theme ─────────────────────────────────────────────────────────────────
+
+    const savedTheme = localStorage.getItem("concept-tree-theme") || "dark";
+    const themeSelect = document.getElementById("theme-select");
+    themeSelect.value = savedTheme;
+
+    // Apply theme CSS variables immediately (before ConceptTree loads)
+    function applyThemeCss(name) {
+      const t = THEMES[name]?.theme;
+      if (!t) return;
+      const r = document.documentElement.style;
+      r.setProperty("--bg",      t.bg);
+      r.setProperty("--bg2",     t.bg2);
+      r.setProperty("--text",    t.text);
+      r.setProperty("--text2",   t.textDim);
+      r.setProperty("--border",  t.border);
+      r.setProperty("--border2", t.border);
+      r.setProperty("--accent",  t.accent);
+      r.setProperty("--accent2", t.accent);
+      document.body.style.background = t.bg;
+    }
+    applyThemeCss(savedTheme);
+
+    themeSelect.addEventListener("change", () => {
+      const t = themeSelect.value;
+      applyThemeCss(t);
+      localStorage.setItem("concept-tree-theme", t);
+      if (window._miniTree) window._miniTree.setTheme(t);
+    });
+
+    if (!conceptId) {
+      document.getElementById("detail-content").innerHTML =
+        '<p style="color:var(--danger)">No concept ID specified.</p>';
+    }
+
+    // ── Nav tree renderer ─────────────────────────────────────────────────────
+
+    /**
+     * Render the full concept tree as a collapsible nav list.
+     * Tree lines use CSS pseudo-elements (v-line / tee / elbow).
+     *
+     * @param {Object[]} roots - array of concept tree nodes
+     * @param {string}   activeid - ID of currently viewed concept
+     * @param {Map}      tagColors
+     * @returns {HTMLElement} <ul class="nav-tree">
+     */
+    function renderNavTree(roots, activeId, tagColors) {
+      const ul = document.getElementById("nav-tree");
+      ul.innerHTML = "";
+
+      // Collapsed state (depth >= 2 starts collapsed unless on the path)
+      const collapsed = new Set();
+      // Build active path (ancestors of current concept)
+      const activePath = new Set();
+      function findPath(node, path) {
+        if (node.id === activeId) {
+          for (const id of path) activePath.add(id);
+          activePath.add(node.id);
+          return true;
+        }
+        for (const child of (node.children || [])) {
+          if (findPath(child, [...path, node.id])) return true;
+        }
+        return false;
+      }
+      for (const root of roots) findPath(root, []);
+
+      // Flatten tree into rows with connector information
+      function flatten(node, depth, ancestorLast) {
+        const rows = [];
+        const isLast = node._isLast; // set by parent
+        rows.push({ node, depth, ancestorLast: [...ancestorLast], isLast });
+        const kids = node.children || [];
+        if (kids.length && !collapsed.has(node.id)) {
+          for (let i = 0; i < kids.length; i++) {
+            kids[i]._isLast = i === kids.length - 1;
+            rows.push(...flatten(kids[i], depth + 1, [...ancestorLast, !isLast]));
+          }
+        }
+        return rows;
+      }
+
+      // Auto-collapse nodes at depth >= 2 that aren't on the active path
+      function markCollapsed(node, depth) {
+        if (depth >= 2 && !activePath.has(node.id)) {
+          collapsed.add(node.id);
+        }
+        for (const child of (node.children || [])) markCollapsed(child, depth + 1);
+      }
+      for (const root of roots) {
+        root._isLast = roots.indexOf(root) === roots.length - 1;
+        markCollapsed(root, 0);
+      }
+
+      function buildRows() {
+        ul.innerHTML = "";
+        for (const root of roots) {
+          root._isLast = roots.indexOf(root) === roots.length - 1;
+        }
+        const rows = [];
+        for (let i = 0; i < roots.length; i++) {
+          roots[i]._isLast = i === roots.length - 1;
+          rows.push(...flatten(roots[i], 0, []));
+        }
+
+        for (const { node, depth, ancestorLast, isLast } of rows) {
+          const li = document.createElement("li");
+          li.className = `nav-row depth-${depth}${node.id === activeId ? " active" : ""}`;
+          li.dataset.id = node.id;
+
+          // Connector cells (one per depth level)
+          const connDiv = document.createElement("span");
+          connDiv.className = "nav-row-connectors";
+          // Root nodes get left padding only
+          if (depth === 0) {
+            const sp = document.createElement("span");
+            sp.style.width = "8px";
+            connDiv.appendChild(sp);
+          } else {
+            for (let d = 0; d < depth; d++) {
+              const seg = document.createElement("span");
+              seg.className = "nav-connector";
+              if (d < depth - 1) {
+                // v-line at column d means the ancestor at depth d+1 is NOT last (has siblings below)
+                if (ancestorLast[d + 1]) seg.classList.add("v-line");
+              } else {
+                // Last connector: tee (more siblings) or elbow (last child)
+                seg.classList.add(isLast ? "elbow" : "tee");
+              }
+              connDiv.appendChild(seg);
+            }
+          }
+          li.appendChild(connDiv);
+
+          // Toggle triangle (only for nodes with children)
+          const tog = document.createElement("span");
+          tog.className = "nav-row-toggle";
+          const hasKids = (node.children || []).length > 0;
+          if (hasKids) {
+            tog.textContent = collapsed.has(node.id) ? "▸" : "▾";
+          }
+          li.appendChild(tog);
+
+          // Title — all nodes with tags get their tag color; active gets full opacity
+          const titleSpan = document.createElement("span");
+          titleSpan.className = "nav-row-title";
+          const firstTag = (node.tags || [])[0];
+          const col = firstTag ? tagColors.get(firstTag) : null;
+          if (col) {
+            titleSpan.style.color = col;
+            if (node.id !== activeId) titleSpan.style.opacity = "0.6";
+          }
+          titleSpan.textContent = node.title || node.id;
+          titleSpan.title = node.title || node.id;
+          li.appendChild(titleSpan);
+
+          li.addEventListener("click", (e) => {
+            e.stopPropagation();
+            if (hasKids) {
+              if (collapsed.has(node.id)) collapsed.delete(node.id);
+              else collapsed.add(node.id);
+              buildRows();
+            }
+            if (node.id !== activeId) {
+              window.location.href = `/detail.html?id=${encodeURIComponent(node.id)}`;
+            }
+          });
+
+          ul.appendChild(li);
+        }
+
+        // Scroll active row into view
+        const activeEl = ul.querySelector(".nav-row.active");
+        if (activeEl) {
+          setTimeout(() => activeEl.scrollIntoView({ block: "nearest" }), 50);
+        }
+      }
+
+      buildRows();
+      return ul;
+    }
+
+    // ── Main load ─────────────────────────────────────────────────────────────
+
+    async function load() {
+      const allResp    = await fetch("/api/concepts");
+      const allSources = await allResp.json();
+      const roots      = buildConceptTree(allSources);
+
+      // Compute tag→color mapping (same algorithm as ConceptTree._rebuild)
+      const tagCounts = new Map();
+      for (const src of Object.values(allSources)) {
+        const { meta: m } = parseFrontmatter(src);
+        for (const tag of (m.tags || [])) tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
+      }
+      const tagColors = new Map();
+      [...tagCounts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .forEach(([tag], i) => tagColors.set(tag, TAG_COLORS[i % TAG_COLORS.length]));
+
+      // Render nav tree
+      renderNavTree(roots, conceptId, tagColors);
+
+      if (!conceptId) return;
+
+      const src = allSources[conceptId];
+      if (!src) {
+        document.getElementById("detail-content").innerHTML =
+          `<p style="color:var(--danger)">Concept "${conceptId}" not found.</p>`;
+        return;
+      }
+
+      const { meta, body } = parseFrontmatter(src);
+      const title = meta.title || conceptId;
+
+      document.title = `${title} — concept-tree`;
+
+      // Apply node color to header accent
+      const firstTag = (meta.tags || [])[0];
+      const nodeColor = firstTag ? (tagColors.get(firstTag) || null) : null;
+      if (nodeColor) {
+        document.documentElement.style.setProperty("--node-color", nodeColor);
+      }
+
+      // Breadcrumb — each crumb uses its OWN tag color, not the current node's
+      const crumbs = buildBreadcrumb(conceptId, allSources);
+      document.getElementById("breadcrumb").innerHTML = crumbs
+        .map((c, i) => {
+          const { meta: cm } = parseFrontmatter(allSources[c.id] || "---\n---\n");
+          const crumbTag   = (cm.tags || [])[0];
+          const crumbColor = crumbTag ? (tagColors.get(crumbTag) || "var(--accent)") : "var(--accent)";
+          return i < crumbs.length - 1
+            ? `<a href="/detail.html?id=${encodeURIComponent(c.id)}" style="color:${crumbColor};text-decoration:none">${c.title}</a>`
+            : `<span style="color:${crumbColor}">${c.title}</span>`;
+        })
+        .join(' <span style="color:var(--text3)">›</span> ');
+
+      // Build concept-title map for wiki link resolution
+      const conceptTitles = {};
+      for (const [cid, csrc] of Object.entries(allSources)) {
+        const { meta: m } = parseFrontmatter(csrc);
+        conceptTitles[cid] = m.title || cid;
+      }
+
+      // Render content
+      const contentEl = document.getElementById("detail-content");
+      let html = renderMarkdown(body, { concepts: conceptTitles });
+
+      if (meta.image) {
+        html = `<img src="${meta.image}" alt="${title}"
+          style="max-width:280px;float:right;margin:0 0 14px 20px">` + html;
+      }
+
+      const childLinks = (meta.links || [])
+        .filter(id => allSources[id])
+        .map(id => {
+          const { meta: cm } = parseFrontmatter(allSources[id]);
+          const firstChildTag = (cm.tags || [])[0];
+          const color = firstChildTag ? tagColors.get(firstChildTag) : null;
+          const style = color ? ` style="border-color:${color};color:${color}"` : "";
+          return `<a class="nav-link"${style} href="/detail.html?id=${id}">${cm.title || id}</a>`;
+        });
+      if (childLinks.length) html += `<div class="detail-nav">${childLinks.join("")}</div>`;
+
+      contentEl.innerHTML = html;
+
+      // ── Minimap (top-right corner, focused on active node) ─────────────────
+      const miniBody = document.getElementById("minimap-body");
+      const miniTree = new ConceptTree(miniBody, {
+        theme: savedTheme,
+        dotMode: true,
+        xStep: 55,
+        yStep: 45,
+        physics: {
+          chargeStrength: -20,
+          collideRadius: 2,
+          preSettleIterations: 220,
+        },
+      });
+      window._miniTree = miniTree;
+      await miniTree.loadMarkdownSources(allSources);
+      // Center on active node at ~2× the fit-all zoom so context is visible
+      miniTree.setActiveNode(conceptId);
+      const ms = miniTree._state;
+      if (ms) {
+        const mn = ms.simNodes.find(n => n.id === conceptId);
+        const focusK = Math.min((ms.fitParams?.k || 0.5) * 2.2, 1.6);
+        ms.tr.k       = focusK;
+        ms.trTarget.k = focusK;
+        if (mn) {
+          ms.tr.tx       = ms.logW / 2 - mn.x * focusK;
+          ms.tr.ty       = ms.logH / 2 - mn.y * focusK;
+          ms.trTarget.tx = ms.logW / 2 - mn.x * focusK;
+          ms.trTarget.ty = ms.logH / 2 - mn.y * focusK;
+        }
+      }
+
+      miniTree.on("nodeClick", (concept) => {
+        window.location.href = `/detail.html?id=${encodeURIComponent(concept.id)}`;
+      });
+
+      // Collapse toggle
+      const tile      = document.getElementById("minimap-tile");
+      const toggleBtn = document.getElementById("minimap-toggle");
+      document.getElementById("minimap-hdr").addEventListener("click", () => {
+        const collapsed = tile.classList.toggle("collapsed");
+        toggleBtn.textContent = collapsed ? "▸" : "▾";
+      });
+    }
+
+    function buildBreadcrumb(id, sources) {
+      const parentMap = new Map();
+      for (const [pid, src] of Object.entries(sources)) {
+        const { meta } = parseFrontmatter(src);
+        for (const link of (meta.links || [])) parentMap.set(link, pid);
+      }
+      const crumbs = [];
+      let current = id;
+      const seen = new Set();
+      while (current && !seen.has(current)) {
+        seen.add(current);
+        const src = sources[current];
+        if (src) {
+          const { meta } = parseFrontmatter(src);
+          crumbs.unshift({ id: current, title: meta.title || current });
+        }
+        current = parentMap.get(current);
+      }
+      return crumbs;
+    }
+
+    load().catch(err => {
+      console.error(err);
+      document.getElementById("detail-content").innerHTML =
+        `<p style="color:var(--danger)">Error: ${err.message}</p>`;
+    });
+  </script>
+</body>
+</html>

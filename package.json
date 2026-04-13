@@ -1,0 +1,27 @@
+{
+  "name": "concept-tree",
+  "version": "1.0.0",
+  "description": "Interactive physics-based concept tree renderer for markdown documents",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./palette": "./src/palette.js",
+    "./geometry": "./src/geometry.js",
+    "./layout": "./src/layout.js",
+    "./physics": "./src/physics.js",
+    "./renderer": "./src/renderer.js",
+    "./interaction": "./src/interaction.js",
+    "./markdown": "./src/markdown.js",
+    "./mini-renderer": "./src/mini-renderer.js"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "demo": "python3 demo/server.py"
+  },
+  "devDependencies": {
+    "jsdom": "^26.1.0",
+    "vitest": "^3.2.4"
+  }
+}

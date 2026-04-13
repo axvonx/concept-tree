@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>concept-tree</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+  <div class="header">
+    <button class="hamburger" id="hamburger" aria-label="Menu">☰</button>
+    <h1>concept-tree</h1>
+    <span class="hint">scroll/pinch zoom · drag pan · click open · F fit</span>
+    <div class="header-actions">
+      <select class="theme-select" id="theme-select" title="Color scheme">
+        <option value="dark">dark</option>
+        <option value="midnight">midnight</option>
+        <option value="forest">forest</option>
+        <option value="warm">warm</option>
+        <option value="light">light</option>
+      </select>
+      <button class="btn" id="btn-fit">fit</button>
+      <button class="btn btn-accent" id="btn-add">+ add</button>
+    </div>
+  </div>
+
+  <!-- Mobile sidebar overlay -->
+  <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+  <div class="main">
+    <div class="sidebar" id="sidebar">
+      <span class="sidebar-label">filter by tag</span>
+      <div class="sidebar-section">
+        <ul class="tag-list" id="tag-list"></ul>
+      </div>
+
+
+    </div>
+
+    <div class="tree-container" id="tree-container">
+      <!-- Hover tooltip -->
+      <div class="tooltip" id="tooltip" style="display:none">
+        <div class="tip-title" id="tip-title"></div>
+        <div class="tip-tags" id="tip-tags"></div>
+        <div class="tip-body" id="tip-body"></div>
+        <img class="tip-image" id="tip-image" style="display:none" alt="">
+        <div class="tip-links" id="tip-links" style="display:none"></div>
+      </div>
+
+      <!-- Overview minimap (top-right corner) -->
+      <div class="map-minimap" id="map-minimap"></div>
+
+      <!-- Zoom controls -->
+      <div class="controls">
+        <button class="ctrl-btn" id="ctrl-zin"  title="Zoom in (+)">+</button>
+        <button class="ctrl-btn" id="ctrl-zout" title="Zoom out (-)">−</button>
+        <button class="ctrl-btn" id="ctrl-fit"  title="Fit all (F)">⊡</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add concept modal -->
+  <div class="modal-backdrop" id="add-modal" style="display:none">
+    <div class="modal">
+      <h2>new concept</h2>
+      <label>ID (slug)</label>
+      <input type="text" id="new-id" placeholder="quantum-field-theory" autocomplete="off">
+      <label>Title</label>
+      <input type="text" id="new-title" placeholder="Quantum Field Theory">
+      <label>Tags (comma-separated)</label>
+      <input type="text" id="new-tags" placeholder="physics, quantum">
+      <label>Parent concept ID</label>
+      <input type="text" id="new-parent" placeholder="quantum-mechanics (optional)">
+      <label>Image URL</label>
+      <input type="text" id="new-image" placeholder="https://... (optional)">
+      <label>Body (markdown)</label>
+      <textarea id="new-body" placeholder="# Title&#10;&#10;Write content here..."></textarea>
+      <div class="modal-actions">
+        <button class="btn" id="modal-cancel">cancel</button>
+        <button class="btn btn-accent" id="modal-save">save</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="main.js"></script>
+  <script>
+    // Hamburger toggle
+    const hamburger = document.getElementById('hamburger');
+    const sidebar   = document.getElementById('sidebar');
+    const overlay   = document.getElementById('sidebar-overlay');
+
+    function openSidebar() {
+      sidebar.classList.add('open');
+      overlay.classList.add('visible');
+    }
+    function closeSidebar() {
+      sidebar.classList.remove('open');
+      overlay.classList.remove('visible');
+    }
+
+    hamburger.addEventListener('click', () =>
+      sidebar.classList.contains('open') ? closeSidebar() : openSidebar()
+    );
+    overlay.addEventListener('click', closeSidebar);
+  </script>
+</body>
+</html>
