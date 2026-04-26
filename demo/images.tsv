@@ -1,0 +1,12 @@
+# url	dest
+# Each line: <image URL> TAB <output path relative to demo/images/>
+# Lines starting with # are ignored.
+https://upload.wikimedia.org/wikipedia/commons/thumb/4/48/Animal_cell_structure_en.svg/250px-Animal_cell_structure_en.svg.png	biology.png
+https://upload.wikimedia.org/wikipedia/commons/thumb/6/63/Benzene_Structural_diagram.svg/250px-Benzene_Structural_diagram.svg.png	chemistry.png
+https://upload.wikimedia.org/wikipedia/commons/4/4c/DNA_Structure%2BKey%2BLabelled.pn_NoBB.png	dna.png
+https://upload.wikimedia.org/wikipedia/commons/a/ae/Darwin%27s_finches_by_Gould.jpg	evolution.jpg
+https://upload.wikimedia.org/wikipedia/commons/1/18/Fibonacci_Spiral.png	mathematics.png
+https://upload.wikimedia.org/wikipedia/commons/d/d3/Newtons_cradle_animation_book_2.gif	physics.gif
+https://upload.wikimedia.org/wikipedia/commons/e/e7/Hydrogen_Density_Plots.png	quantum-mechanics.png
+https://upload.wikimedia.org/wikipedia/commons/thumb/6/63/Spacetime_lattice_analogy.svg/250px-Spacetime_lattice_analogy.svg.png	relativity.png
+https://upload.wikimedia.org/wikipedia/commons/1/13/A_Trajectory_Through_Phase_Space_in_a_Lorenz_Attractor.gif	chaos.gif

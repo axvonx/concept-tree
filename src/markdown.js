@@ -182,13 +182,96 @@ export function renderMarkdown(src, options = {}) {
   if (typeof globalThis.marked !== "undefined") {
     let processed = src;
     if (options.concepts) processed = _resolveWikiLinks(processed, options.concepts);
-    return globalThis.marked.parse(processed, {
+
+    // Protect LaTeX blocks from marked's markdown processing.
+    const mathBlocks = [];
+    processed = processed.replace(/\$\$([\s\S]*?)\$\$/g, (match) => {
+      mathBlocks.push(match);
+      return `MATHPLACEHOLDER${mathBlocks.length - 1}END`;
+    });
+    processed = processed.replace(/\$([^\$\n]+?)\$/g, (match) => {
+      mathBlocks.push(match);
+      return `MATHPLACEHOLDER${mathBlocks.length - 1}END`;
+    });
+
+    // Configure marked renderer for syntax highlighting and task lists
+    const renderer = new globalThis.marked.Renderer();
+
+    // Syntax highlighting via highlight.js (if available)
+    renderer.code = function ({ text, lang }) {
+      if (typeof globalThis.hljs !== "undefined" && lang && globalThis.hljs.getLanguage(lang)) {
+        const highlighted = globalThis.hljs.highlight(text, { language: lang }).value;
+        return `<pre><code class="hljs language-${lang}">${highlighted}</code></pre>`;
+      }
+      if (typeof globalThis.hljs !== "undefined") {
+        const highlighted = globalThis.hljs.highlightAuto(text).value;
+        return `<pre><code class="hljs">${highlighted}</code></pre>`;
+      }
+      const escaped = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const cls = lang ? ` class="language-${lang}"` : "";
+      return `<pre><code${cls}>${escaped}</code></pre>`;
+    };
+
+    // Task list checkboxes — must parse inline tokens for bold/italic/etc.
+    renderer.listitem = function (token) {
+      const body = this.parser.parseInline(token.tokens);
+      if (token.task) {
+        return `<li class="task-list-item">${body}</li>\n`;
+      }
+      return `<li>${body}</li>\n`;
+    };
+
+    // Auto-embed YouTube and Vimeo links that appear alone on a line
+    renderer.link = function ({ href, title, text }) {
+      const embed = _tryEmbed(href, text);
+      if (embed) return embed;
+      const titleAttr = title ? ` title="${title}"` : "";
+      return `<a href="${href}"${titleAttr}>${text}</a>`;
+    };
+
+    // Responsive images with optional figcaption
+    renderer.image = function ({ href, title, text }) {
+      const titleAttr = title ? ` title="${title}"` : "";
+      if (text) {
+        return `<figure class="md-figure"><img src="${href}" alt="${text}"${titleAttr} loading="lazy"><figcaption>${text}</figcaption></figure>`;
+      }
+      return `<img src="${href}" alt=""${titleAttr} loading="lazy">`;
+    };
+
+    let html = globalThis.marked.parse(processed, {
       breaks: true,
       gfm: true,
+      renderer,
     });
+
+    html = html.replace(/MATHPLACEHOLDER(\d+)END/g, (_, i) => mathBlocks[Number(i)]);
+    return html;
   }
 
   return _fallbackRender(src, options);
+}
+
+/**
+ * Try to convert a URL into an embed iframe (YouTube, Vimeo).
+ * Returns HTML string or null.
+ */
+function _tryEmbed(href, text) {
+  // Only auto-embed when the link text is the URL itself (bare link)
+  if (text !== href) return null;
+
+  // YouTube: youtube.com/watch?v=ID, youtu.be/ID, youtube.com/embed/ID
+  let m = href.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([\w-]{11})/);
+  if (m) {
+    return `<div class="md-embed"><iframe src="https://www.youtube-nocookie.com/embed/${m[1]}" frameborder="0" allowfullscreen loading="lazy"></iframe></div>`;
+  }
+
+  // Vimeo: vimeo.com/ID
+  m = href.match(/vimeo\.com\/(\d+)/);
+  if (m) {
+    return `<div class="md-embed"><iframe src="https://player.vimeo.com/video/${m[1]}" frameborder="0" allowfullscreen loading="lazy"></iframe></div>`;
+  }
+
+  return null;
 }
 
 /** Expand [[id]] and [[Title|id]] wiki links to internal detail page anchors. */
@@ -202,6 +285,15 @@ function _resolveWikiLinks(src, concepts) {
     const title = b ? a.trim() : (concepts[id] || id);
     return `[${title}](/detail.html?id=${encodeURIComponent(id)})`;
   });
+}
+
+/**
+ * Build the HTML for a concept's frontmatter header image.
+ * Rendered as a block-level element (left-aligned, no float).
+ */
+export function buildHeaderImageHtml(src, alt) {
+  const escapedAlt = (alt || "").replace(/"/g, "&quot;");
+  return `<img src="${src}" alt="${escapedAlt}" class="detail-header-img">`;
 }
 
 function _fallbackRender(src, options = {}) {
@@ -220,6 +312,39 @@ function _fallbackRender(src, options = {}) {
     return `<pre><code${cls}>${escaped}</code></pre>`;
   });
 
+  // GFM tables: header row, separator row, data rows
+  text = text.replace(/(^\|.+\|[ \t]*\n\|[ \t]*[-:|][-:| \t]*\|[ \t]*\n(\|.+\|[ \t]*\n?)*)/gm, m => {
+    const rows = m.trim().split("\n");
+    if (rows.length < 2) return m;
+
+    const parseRow = r => r.replace(/^\|/, "").replace(/\|$/, "").split("|").map(c => c.trim());
+    const headers = parseRow(rows[0]);
+
+    // Parse alignment from separator row
+    const seps = parseRow(rows[1]);
+    const aligns = seps.map(s => {
+      if (/^:-+:$/.test(s)) return "center";
+      if (/^-+:$/.test(s)) return "right";
+      return "left";
+    });
+
+    let html = "<table><thead><tr>";
+    for (let i = 0; i < headers.length; i++) {
+      html += `<th style="text-align:${aligns[i] || "left"}">${headers[i]}</th>`;
+    }
+    html += "</tr></thead><tbody>";
+    for (let r = 2; r < rows.length; r++) {
+      const cells = parseRow(rows[r]);
+      html += "<tr>";
+      for (let i = 0; i < headers.length; i++) {
+        html += `<td style="text-align:${aligns[i] || "left"}">${cells[i] || ""}</td>`;
+      }
+      html += "</tr>";
+    }
+    html += "</tbody></table>";
+    return html;
+  });
+
   // Blockquotes (consecutive "> " lines)
   text = text.replace(/(^> .+$(\n|$))+/gm, m => {
     const inner = m.replace(/^> ?/gm, "").trim();
@@ -231,15 +356,27 @@ function _fallbackRender(src, options = {}) {
 
   // Headings
   text = text
+    .replace(/^#### (.+)$/gm, "<h4>$1</h4>")
     .replace(/^### (.+)$/gm, "<h3>$1</h3>")
     .replace(/^## (.+)$/gm, "<h2>$1</h2>")
     .replace(/^# (.+)$/gm, "<h1>$1</h1>");
 
-  // Images before links (order matters)
-  text = text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" />');
+  // Images — with figcaption when alt text is present
+  text = text.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, url) => {
+    if (alt) {
+      return `<figure class="md-figure"><img src="${url}" alt="${alt}" loading="lazy"><figcaption>${alt}</figcaption></figure>`;
+    }
+    return `<img src="${url}" alt="" loading="lazy">`;
+  });
 
-  // Links
-  text = text.replace(/\[([^\]]*)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+  // Auto-embed bare YouTube/Vimeo links
+  text = text.replace(/\[([^\]]*)\]\(([^)]+)\)/g, (full, linkText, href) => {
+    if (linkText === href) {
+      const embed = _tryEmbed(href, linkText);
+      if (embed) return embed;
+    }
+    return `<a href="${href}">${linkText}</a>`;
+  });
 
   // Inline formatting
   text = text
@@ -256,19 +393,29 @@ function _fallbackRender(src, options = {}) {
     return `<ol>${items.join("")}</ol>`;
   });
 
-  // Unordered lists: lines starting with "- " or "* "
+  // Unordered lists with task list support: lines starting with "- " or "* "
   text = text.replace(/(^[-*] .+$(\n|$))+/gm, m => {
-    const items = m.trim().split("\n").map(l => `<li>${l.replace(/^[-*] /, "")}</li>`);
+    const items = m.trim().split("\n").map(l => {
+      const content = l.replace(/^[-*] /, "");
+      // Task list items: "- [x] done" or "- [ ] todo"
+      const taskMatch = content.match(/^\[([ xX])\] (.*)$/);
+      if (taskMatch) {
+        const checked = taskMatch[1].toLowerCase() === "x";
+        const checkbox = `<input type="checkbox" disabled${checked ? " checked" : ""}>`;
+        return `<li class="task-list-item">${checkbox} ${taskMatch[2]}</li>`;
+      }
+      return `<li>${content}</li>`;
+    });
     return `<ul>${items.join("")}</ul>`;
   });
 
   // Paragraphs
   text = text
     .replace(/\n{2,}/g, "</p><p>")
-    .replace(/^(?!<[houbdp])/gm, s => s ? `<p>${s}` : "")
+    .replace(/^(?!<[houbdptf])/gm, s => s ? `<p>${s}` : "")
     .replace(/<p><\/p>/g, "")
-    .replace(/<p>(<(?:h[1-6]|ul|ol|blockquote|pre|hr)[^>]*>)/g, "$1")
-    .replace(/(<\/(?:h[1-6]|ul|ol|blockquote|pre)>)<\/p>/g, "$1");
+    .replace(/<p>(<(?:h[1-6]|ul|ol|blockquote|pre|hr|table|figure|div)[^>]*>)/g, "$1")
+    .replace(/(<\/(?:h[1-6]|ul|ol|blockquote|pre|table|figure|div)>)<\/p>/g, "$1");
 
   return text;
 }

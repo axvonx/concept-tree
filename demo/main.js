@@ -6,6 +6,7 @@
  */
 
 import { ConceptTree } from "/src/index.js";
+import { getBookmarks } from "/src/bookmarks.js";
 
 // ── Initialize ───────────────────────────────────────────────────────────────
 
@@ -66,6 +67,7 @@ async function loadConcepts() {
     const resp    = await fetch("/api/concepts");
     const sources = await resp.json();
     await tree.loadMarkdownSources(sources);
+    tree.setBookmarks(getBookmarks());
     updateSidebar();
     initMiniOverview(sources);
   } catch (err) {
@@ -74,6 +76,23 @@ async function loadConcepts() {
       '<p style="padding:20px;color:#f87171">Failed to load concepts. Is the server running?</p>';
   }
 }
+
+// ── Bookmark sync ────────────────────────────────────────────────────────────
+
+let bookmarkFilterActive = false;
+
+function syncBookmarks() {
+  const bm = getBookmarks();
+  tree.setBookmarks(bm);
+  if (bookmarkFilterActive) {
+    tree.highlightNodeIds(bm);
+  }
+  updateSidebar();
+}
+
+// Re-sync when returning from detail page (bfcache may skip a reload)
+document.addEventListener("visibilitychange", () => { if (!document.hidden) syncBookmarks(); });
+window.addEventListener("focus", syncBookmarks);
 
 // ── Sidebar: tags (multi-select filter) ─────────────────────────────────────
 
@@ -88,14 +107,40 @@ function updateSidebar() {
   const tags = tree.getTagCounts();
   tagList.innerHTML = "";
 
+  // Bookmark filter — only shown when there are saved bookmarks
+  const bm = getBookmarks();
+  if (bm.size > 0) {
+    const bmLi = document.createElement("li");
+    bmLi.className = "tag-item" + (bookmarkFilterActive ? " active" : "");
+    bmLi.innerHTML = `<span class="tag-bar" style="background:#f59e0b"></span>
+      <span class="tag-name">bookmarked</span>
+      <span class="tag-count">${bm.size}</span>`;
+    bmLi.onclick = () => {
+      bookmarkFilterActive = !bookmarkFilterActive;
+      if (bookmarkFilterActive) {
+        tree.highlightNodeIds(getBookmarks());
+      } else {
+        tree.highlightNodeIds(new Set());
+      }
+      renderTagList();
+    };
+    tagList.appendChild(bmLi);
+  } else if (bookmarkFilterActive) {
+    // Bookmarks were cleared externally; deactivate filter
+    bookmarkFilterActive = false;
+    tree.highlightNodeIds(new Set());
+  }
+
   // "All" entry — clears selection
   const allLi = document.createElement("li");
-  allLi.className = "tag-item" + (selectedTags.size === 0 ? " active" : "");
+  allLi.className = "tag-item" + (selectedTags.size === 0 && !bookmarkFilterActive ? " active" : "");
   allLi.innerHTML = `<span class="tag-bar" style="background:#7c3aed"></span>
     <span class="tag-name">all</span>
     <span class="tag-count">${tree.getNodes().length}</span>`;
   allLi.onclick = () => {
     selectedTags.clear();
+    bookmarkFilterActive = false;
+    tree.highlightNodeIds(new Set());
     applyTagFilter();
     renderTagList();
   };
@@ -191,81 +236,6 @@ document.getElementById("ctrl-zin").onclick = () => tree.zoomIn();
 document.getElementById("ctrl-zout").onclick = () => tree.zoomOut();
 document.getElementById("ctrl-fit").onclick = () => tree.fitAll();
 document.getElementById("btn-fit").onclick = () => tree.fitAll();
-
-// ── Add concept modal ────────────────────────────────────────────────────────
-
-const addModal = document.getElementById("add-modal");
-
-document.getElementById("btn-add").onclick = () => {
-  addModal.style.display = "flex";
-};
-
-document.getElementById("modal-cancel").onclick = () => {
-  addModal.style.display = "none";
-};
-
-addModal.onclick = (e) => {
-  if (e.target === addModal) addModal.style.display = "none";
-};
-
-document.getElementById("modal-save").onclick = async () => {
-  const id = document.getElementById("new-id").value.trim();
-  const title = document.getElementById("new-title").value.trim();
-  const tags = document.getElementById("new-tags").value.trim();
-  const parent = document.getElementById("new-parent").value.trim();
-  const image = document.getElementById("new-image").value.trim();
-  const body = document.getElementById("new-body").value.trim();
-
-  if (!id || !title) {
-    alert("ID and Title are required");
-    return;
-  }
-
-  // Build markdown source
-  let md = "---\n";
-  md += `title: ${title}\n`;
-  if (tags) md += `tags: [${tags}]\n`;
-  if (image) md += `image: ${image}\n`;
-  md += "---\n\n";
-  md += body || `# ${title}\n`;
-
-  // Save to server
-  try {
-    await fetch(`/api/concept/${id}`, {
-      method: "POST",
-      headers: { "Content-Type": "text/markdown" },
-      body: md,
-    });
-
-    // If parent specified, update parent's links to include this new concept
-    if (parent) {
-      const parentResp = await fetch(`/api/concept/${parent}`);
-      if (parentResp.ok) {
-        const { source } = await parentResp.json();
-        // Add link to parent's frontmatter
-        let updated;
-        if (source.includes("links:")) {
-          // Append to existing links
-          updated = source.replace(/(links:\s*\n(?:\s+-\s+\S+\n)*)/, `$1  - ${id}\n`);
-        } else {
-          // Add links field before end of frontmatter
-          updated = source.replace(/\n---\n/, `\nlinks:\n  - ${id}\n---\n`);
-        }
-        await fetch(`/api/concept/${parent}`, {
-          method: "POST",
-          headers: { "Content-Type": "text/markdown" },
-          body: updated,
-        });
-      }
-    }
-
-    // Reload
-    addModal.style.display = "none";
-    await loadConcepts();
-  } catch (err) {
-    alert("Failed to save: " + err.message);
-  }
-};
 
 // ── Boot ─────────────────────────────────────────────────────────────────────
 

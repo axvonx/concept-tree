@@ -520,6 +520,28 @@ body {
 .nav-row:hover { background: var(--bg3); }
 .nav-row.active { background: color-mix(in srgb, var(--accent) 10%, transparent); }
 .nav-row.active .nav-row-title { color: var(--accent); font-weight: 600; }
+.nav-row.minimap-hover { background: color-mix(in srgb, var(--accent) 6%, var(--bg3)); outline: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); outline-offset: -1px; }
+
+/* Full-name tooltip that appears to the right of a hovered nav row */
+.nav-tooltip {
+  position: fixed;
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  color: var(--text);
+  font-size: 12px;
+  padding: 4px 9px;
+  border-radius: 4px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.1s;
+  z-index: 200;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nav-tooltip.visible { opacity: 1; }
 
 /* Connector column: holds tree-line SVG segments */
 .nav-row-connectors {
@@ -585,19 +607,29 @@ body {
   background: var(--border2);
 }
 
-.nav-row-toggle {
-  width: 18px;
+.nav-row-toggle-btn {
+  width: 20px;
   flex-shrink: 0;
+  align-self: stretch;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 9px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
   color: var(--text3);
-  user-select: none;
+  opacity: 0.5;
+  transition: opacity 0.12s;
+  -webkit-tap-highlight-color: transparent;
 }
+.nav-row-toggle-btn:hover { opacity: 1; }
+.nav-row-toggle-btn svg { transition: transform 0.15s; transform: rotate(0deg); }
+.nav-row-toggle-btn.open svg { transform: rotate(90deg); }
 
 .nav-row-title {
   flex: 1;
+  min-width: 0;
   padding: 5px 12px 5px 2px;
   color: var(--text2);
   white-space: nowrap;
@@ -609,6 +641,15 @@ body {
 }
 
 .nav-row.depth-0 .nav-row-title { font-weight: 600; font-size: 13px; color: var(--text); }
+
+.nav-bookmark-icon {
+  flex-shrink: 0;
+  font-size: 10px;
+  line-height: 1;
+  align-self: center;
+  margin-right: 3px;
+  opacity: 0.9;
+}
 
 /* Scrollable content column */
 .detail-scroll {
@@ -622,10 +663,10 @@ body {
 
 .detail-content {
   width: 100%;
-  max-width: 860px;
-  padding: 52px 60px 52px 60px;
-  /* Right padding accounts for the minimap overlay width (380px + 20px gap) */
-  padding-right: 420px;
+  max-width: 1100px;
+  padding: 52px 60px;
+  /* Right padding reserves space for the fixed minimap (380px wide + 40px gap) */
+  padding-right: 440px;
 }
 
 .detail-content h1 {
@@ -650,6 +691,13 @@ body {
   font-weight: 600;
   color: var(--text2);
   margin: 20px 0 7px;
+}
+
+.detail-content h4 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text2);
+  margin: 16px 0 5px;
 }
 
 .detail-content p {
@@ -687,7 +735,10 @@ body {
   border-radius: 4px;
 }
 
-.detail-content pre code { background: none; padding: 0; color: var(--text); }
+.detail-content pre code { background: none; padding: 0; color: var(--text); font-size: 13px; }
+
+/* Override highlight.js background to match theme */
+.detail-content pre code.hljs { background: transparent; padding: 0; }
 
 .detail-content img {
   max-width: 100%;
@@ -695,9 +746,115 @@ body {
   margin: 10px 0;
 }
 
+/* Frontmatter header image — block-level, left-aligned */
+.detail-header-img {
+  display: block;
+  max-width: 340px;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  margin: 0 0 24px 0;
+}
+
 .detail-content strong { color: var(--text); }
 .detail-content a { color: var(--accent); text-decoration: none; }
 .detail-content a:hover { text-decoration: underline; }
+
+/* ── Tables ──────────────────────────────────────────────────────────────── */
+
+.detail-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 16px 0;
+  font-size: 14px;
+}
+
+.detail-content thead th {
+  background: var(--bg3);
+  color: var(--text);
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 8px 12px;
+  border-bottom: 2px solid var(--border2);
+  text-align: left;
+}
+
+.detail-content tbody td {
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text2);
+}
+
+.detail-content tbody tr:hover { background: color-mix(in srgb, var(--bg3) 50%, transparent); }
+
+/* ── Task lists (checkboxes) ────────────────────────────────────────────── */
+
+.detail-content .task-list-item {
+  list-style: none;
+  margin-left: -20px;
+}
+
+.detail-content .task-list-item input[type="checkbox"] {
+  margin-right: 6px;
+  vertical-align: middle;
+  accent-color: var(--accent);
+}
+
+/* ── Embeds (YouTube / Vimeo) ───────────────────────────────────────────── */
+
+.detail-content .md-embed {
+  position: relative;
+  width: 100%;
+  padding-bottom: 56.25%; /* 16:9 */
+  margin: 16px 0;
+  background: var(--bg3);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.detail-content .md-embed iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+/* ── Figures ─────────────────────────────────────────────────────────────── */
+
+.detail-content .md-figure {
+  margin: 16px 0;
+  text-align: center;
+}
+
+.detail-content .md-figure img {
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.detail-content .md-figure figcaption {
+  font-size: 12px;
+  color: var(--text3);
+  margin-top: 6px;
+  font-style: italic;
+}
+
+/* ── Blockquote styling ─────────────────────────────────────────────────── */
+
+.detail-content blockquote {
+  border-left: 3px solid var(--accent);
+  margin: 14px 0;
+  padding: 8px 16px;
+  background: color-mix(in srgb, var(--bg3) 50%, transparent);
+  color: var(--text2);
+  font-style: italic;
+}
+
+.detail-content blockquote p { margin-bottom: 4px; }
 
 /* ── Child nav links ─────────────────────────────────────────────────────── */
 
@@ -729,9 +886,9 @@ body {
 
 .detail-meta {
   padding: 0 60px 36px;
-  max-width: 860px;
+  max-width: 1100px;
   width: 100%;
-  padding-right: 420px; /* match detail-content right padding */
+  padding-right: 440px; /* match detail-content right padding */
 }
 
 .detail-meta dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; }
@@ -817,9 +974,39 @@ body {
   height: 100% !important;
 }
 
+.minimap-tooltip {
+  position: absolute;
+  background: var(--bg2);
+  border: 1px solid var(--border2);
+  color: var(--text);
+  font-size: 12px;
+  padding: 4px 9px;
+  border-radius: 4px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s;
+  z-index: 5;
+  white-space: nowrap;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+}
+.minimap-tooltip.visible { opacity: 1; }
+
 /* ── Mobile overlay sidebar ──────────────────────────────────────────────── */
 
+/* ── Medium screens: shrink minimap so text column stays readable ─────────── */
+
+@media (max-width: 1280px) and (min-width: 769px) {
+  .minimap-tile { width: 300px; }
+  .detail-content { padding-right: 344px; }
+  .detail-meta    { padding-right: 344px; }
+}
+
 @media (max-width: 768px) {
+  html { overflow-x: hidden; }
+
   .hamburger { display: flex; align-items: center; }
   .header .hint { display: none; }
 
@@ -902,7 +1089,21 @@ body {
 
 /* ── Scrollbar ───────────────────────────────────────────────────────────── */
 
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: var(--bg); }
-::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 1px; }
-::-webkit-scrollbar-thumb:hover { background: var(--text3); }
+/* Firefox */
+* { scrollbar-width: thin; scrollbar-color: var(--border2) transparent; }
+
+/* WebKit / Blink */
+::-webkit-scrollbar { width: 7px; height: 7px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border2);
+  border-radius: 99px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text3);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-corner { background: transparent; }

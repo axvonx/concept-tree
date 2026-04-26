@@ -19,9 +19,9 @@
  */
 
 import { DARK_THEME, LIGHT_THEME, TAG_COLORS, THEMES } from "./palette.js";
-import { NODE_VARIANTS } from "./nodes.js";
+import { NODE_VARIANTS, remeasureNodeDims } from "./nodes.js";
 import { buildConceptTree, parseFrontmatter, bodySnippet, renderMarkdown } from "./markdown.js";
-import { buildGraph, detectTrunk, alignTrunk, buildGroups, treeLayout } from "./layout.js";
+import { buildGraph, buildGroups, treeLayout } from "./layout.js";
 import { createSimulation, computeBounds, DEFAULT_PHYSICS, setD3Force } from "./physics.js";
 import { render, NODE_W, NODE_H, STRIP_H, DOT_R } from "./renderer.js";
 import { createHandlers, attachHandlers, lerpTransform, zoomIn, zoomOut, fitAll } from "./interaction.js";
@@ -217,6 +217,19 @@ export class ConceptTree {
     if (this._state) this._state.highlightTags = new Set(tags || []);
   }
 
+  /**
+   * Highlight nodes by ID. A node is lit when it matches the ID set (or tag set, if both active).
+   * Pass an empty Set/array to clear.
+   */
+  highlightNodeIds(ids) {
+    if (this._state) this._state.highlightNodeIds = new Set(ids || []);
+  }
+
+  /** Set the bookmarked node IDs (used for bookmark icon rendering). */
+  setBookmarks(ids) {
+    if (this._state) this._state.bookmarks = new Set(ids || []);
+  }
+
   // ── Zoom controls ──────────────────────────────────────────────────────────
 
   zoomIn() { if (this._state) zoomIn(this._state); }
@@ -316,10 +329,6 @@ export class ConceptTree {
 
     // Build graph
     const { nodes, links, leafCount } = buildGraph(this._roots, { xStep, yStep, radial });
-    const trunkSet = detectTrunk(nodes, links);
-    // NOTE: alignTrunk intentionally not called — it shifts trunk nodes onto
-    // their parent's bx, which collapses sibling subtrees together visually.
-    // The trunk-x simulation force provides a gentler version of this effect.
     const groups = buildGroups(nodes);
 
     // Build tag colors
@@ -350,9 +359,20 @@ export class ConceptTree {
     const containerH = this._container.clientHeight;
     const fixedHeight = this._options.height || (containerH > 80 ? containerH : 0);
 
+    // Store for the resize handler
+    this._effW = effW;
+    this._effH = effH;
+    this._fixedHeight = fixedHeight;
+
+    // Re-measure node dimensions using actual canvas text metrics.
+    if (!dotMode) {
+      const measureCtx = canvas.getContext("2d");
+      remeasureNodeDims(measureCtx, nodes);
+    }
+
     // Create simulation first so we can measure graph bounds.
     const sim = await createSimulation({
-      nodes, links, trunkSet,
+      nodes, links,
       dims: { nodeW: effW, nodeH: effH, xStep, yStep },
       physics: this._options.physics,
       radial,
@@ -398,19 +418,22 @@ export class ConceptTree {
       logW, logH: finalH, dpr,
 
       simNodes: nodes, simLinks: links,
-      groups, trunkSet, tagColors,
+      groups, tagColors,
       sim,
       // Start zoomed in at 1.0 so the center node is readable; fitAll (F key) shows whole tree.
       // For dotMode (minimap) keep the fit-all zoom so everything is visible.
       tr:       { k: dotMode ? fitK : 1.0, tx: logW / 2 - bounds.cx * (dotMode ? fitK : 1.0), ty: (finalH - STRIP_H) / 2 - bounds.cy * (dotMode ? fitK : 1.0) },
       trTarget: { k: dotMode ? fitK : 1.0, tx: logW / 2 - bounds.cx * (dotMode ? fitK : 1.0), ty: (finalH - STRIP_H) / 2 - bounds.cy * (dotMode ? fitK : 1.0) },
       minZoom: Math.max(minZoom, 0.05),
+      maxZoom: this._options.maxZoom ?? 8,
       fitParams: { k: Math.max(fitK, minZoom), cx: bounds.cx, cy: bounds.cy },
       activeId: "",
       hoverNodeId: null,
       focusedId: "",
       dragNode: null,
       highlightTags: new Set(),
+      bookmarks: new Set(),
+      highlightNodeIds: new Set(),
       dotMode,
       theme: this._theme,
       animT: 0,
@@ -427,28 +450,75 @@ export class ConceptTree {
 
     this._detachHandlers = attachHandlers(canvas, handlers);
 
-    // Keep canvas pixel dimensions in sync with container (handles browser zoom + resize)
-    if (typeof ResizeObserver !== "undefined") {
-      const ro = new ResizeObserver(() => {
-        if (!this._state) return;
-        const newDpr = window.devicePixelRatio || 1;
-        const newW = this._container.clientWidth;
-        const newH = this._container.clientHeight || this._state.logH;
-        if (
-          Math.abs(canvas.width  - Math.round(newW * newDpr)) > 1 ||
-          Math.abs(canvas.height - Math.round(newH * newDpr)) > 1
-        ) {
-          canvas.width  = Math.round(newW * newDpr);
-          canvas.height = Math.round(newH * newDpr);
-          this._state.dpr  = newDpr;
-          this._state.logW = newW;
-          this._state.logH = newH;
+    // ── Responsive resize ──────────────────────────────────────────────────────
+    // Handles both container-level changes (ResizeObserver) and viewport-level
+    // changes such as mobile orientation (window "resize" event), which don't
+    // always change the container size and therefore don't trigger RO alone.
+    const handleResize = () => {
+      if (!this._state) return;
+      const newDpr = window.devicePixelRatio || 1;
+      const newW   = this._container.clientWidth;
+      // One bounds call, reused for both height calculation and fitParams.
+      const b = computeBounds(this._state.simNodes, this._effW, this._effH);
+
+      let newH;
+      if (this._fixedHeight > 0) {
+        // Container has an explicit CSS height — read it directly.
+        newH = this._container.clientHeight || this._state.logH;
+      } else {
+        // Auto-height canvas: recompute from current viewport height.
+        const fitKh = Math.min(1,
+          (newW - 60) / Math.max(1, b.spanX),
+          (window.innerHeight * 0.72 - STRIP_H) / Math.max(1, b.spanY),
+        );
+        const displayH = b.spanY * Math.max(fitKh, 0.45) + STRIP_H + 120;
+        newH = Math.round(Math.max(460, Math.min(displayH, window.innerHeight * 0.88)));
+        // Only touch the inline style when the value actually changed, to avoid
+        // triggering the ResizeObserver in a loop.
+        if (Math.round(parseFloat(canvas.style.height) || 0) !== newH) {
+          canvas.style.height = newH + "px";
         }
-      });
+      }
+
+      const wDiff = Math.abs(canvas.width  - Math.round(newW * newDpr));
+      const hDiff = Math.abs(canvas.height - Math.round(newH * newDpr));
+      if (wDiff <= 1 && hDiff <= 1) return;
+
+      canvas.width  = Math.round(newW * newDpr);
+      canvas.height = Math.round(newH * newDpr);
+      this._state.dpr  = newDpr;
+      this._state.logW = newW;
+      this._state.logH = newH;
+      // Keep fitAll() correct for the new dimensions.
+      const fitK = Math.min(1,
+        (newW - 60) / Math.max(1, b.spanX),
+        (newH - STRIP_H - 40) / Math.max(1, b.spanY),
+      );
+      const minZoom = Math.max(fitK * 0.75, 0.08);
+      this._state.fitParams = { k: Math.max(fitK, minZoom), cx: b.cx, cy: b.cy };
+      this._state.minZoom   = Math.max(minZoom, 0.05);
+    };
+
+    // ResizeObserver catches container-level changes (sidebar toggle, flex relayout…)
+    if (typeof ResizeObserver !== "undefined") {
+      const ro = new ResizeObserver(handleResize);
       ro.observe(this._container);
       const origDetach = this._detachHandlers;
-      this._detachHandlers = () => { origDetach(); ro.disconnect(); };
+      this._detachHandlers = () => {
+        origDetach();
+        ro.disconnect();
+        window.removeEventListener("resize", handleResize);
+      };
+    } else {
+      const origDetach = this._detachHandlers;
+      this._detachHandlers = () => {
+        origDetach();
+        window.removeEventListener("resize", handleResize);
+      };
     }
+    // window "resize" catches viewport height changes (orientation, browser chrome
+    // appearing/disappearing) that don't always change the container element size.
+    window.addEventListener("resize", handleResize);
 
     // Start render loop
     this._alive = true;
@@ -468,7 +538,7 @@ export class ConceptTree {
 
 // Re-export utilities for advanced usage
 export { parseFrontmatter, buildConceptTree, bodySnippet, renderMarkdown } from "./markdown.js";
-export { treeLayout, buildGraph, detectTrunk, buildGroups } from "./layout.js";
+export { treeLayout, buildGraph, buildGroups } from "./layout.js";
 export { DEFAULT_PHYSICS, setD3Force, computeBounds } from "./physics.js";
 export { DARK_THEME, LIGHT_THEME, TIER_COLORS, TAG_COLORS, tierColor, rgba, THEMES } from "./palette.js";
 export { initMiniMap, renderMiniMap } from "./mini-renderer.js";

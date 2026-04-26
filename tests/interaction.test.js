@@ -134,10 +134,23 @@ describe("zoomTo", () => {
     expect(state.trTarget.k).toBeCloseTo(2);
   });
 
-  it("does not exceed max zoom (8)", () => {
+  it("does not exceed max zoom (8) when maxZoom not set", () => {
     const state = makeState({ trTarget: { k: 7, tx: 0, ty: 0 } });
     zoomTo(10, 400, 300, state);
     expect(state.trTarget.k).toBeLessThanOrEqual(8);
+  });
+
+  it("respects state.maxZoom when set", () => {
+    const state = makeState({ maxZoom: 2.0, trTarget: { k: 1.9, tx: 0, ty: 0 } });
+    zoomTo(10, 400, 300, state);
+    expect(state.trTarget.k).toBeCloseTo(2.0);
+    expect(state.trTarget.k).toBeLessThanOrEqual(2.0);
+  });
+
+  it("maxZoom lower than default 8 — cannot zoom past it", () => {
+    const state = makeState({ maxZoom: 1.5, trTarget: { k: 1, tx: 0, ty: 0 } });
+    for (let i = 0; i < 20; i++) zoomTo(1.2, 400, 300, state);
+    expect(state.trTarget.k).toBeLessThanOrEqual(1.5);
   });
 
   it("does not go below minZoom", () => {

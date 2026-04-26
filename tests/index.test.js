@@ -349,6 +349,55 @@ describe("ConceptTree.highlightTag / highlightTags", () => {
   });
 });
 
+describe("ConceptTree.setBookmarks / highlightNodeIds", () => {
+  let container, tree;
+
+  beforeEach(async () => {
+    container = makeContainer();
+    tree = new ConceptTree(container, { physics: { preSettleIterations: 1 } });
+    await tree.loadMarkdownSources(SOURCES);
+  });
+
+  afterEach(() => {
+    tree.destroy();
+    container.remove();
+  });
+
+  it("initial state has empty bookmarks Set", () => {
+    expect(tree._state.bookmarks).toBeInstanceOf(Set);
+    expect(tree._state.bookmarks.size).toBe(0);
+  });
+
+  it("setBookmarks stores IDs as a Set", () => {
+    tree.setBookmarks(["root", "child1"]);
+    expect(tree._state.bookmarks.has("root")).toBe(true);
+    expect(tree._state.bookmarks.has("child1")).toBe(true);
+    expect(tree._state.bookmarks.size).toBe(2);
+  });
+
+  it("setBookmarks with empty array clears bookmarks", () => {
+    tree.setBookmarks(["root"]);
+    tree.setBookmarks([]);
+    expect(tree._state.bookmarks.size).toBe(0);
+  });
+
+  it("initial state has empty highlightNodeIds Set", () => {
+    expect(tree._state.highlightNodeIds).toBeInstanceOf(Set);
+    expect(tree._state.highlightNodeIds.size).toBe(0);
+  });
+
+  it("highlightNodeIds stores IDs in state", () => {
+    tree.highlightNodeIds(["root"]);
+    expect(tree._state.highlightNodeIds.has("root")).toBe(true);
+  });
+
+  it("highlightNodeIds with empty array clears filter", () => {
+    tree.highlightNodeIds(["root"]);
+    tree.highlightNodeIds([]);
+    expect(tree._state.highlightNodeIds.size).toBe(0);
+  });
+});
+
 describe("ConceptTree.setTheme", () => {
   let container, tree;
 
@@ -447,5 +496,91 @@ describe("ConceptTree spacing option", () => {
     expect(avgDist(spreadNodes)).toBeGreaterThan(avgDist(tightNodes));
     tight.destroy(); spread.destroy();
     container1.remove(); container2.remove();
+  });
+});
+
+// ── Resize recalculates fitParams ─────────────────────────────────────────────
+
+describe("ConceptTree resize handling", () => {
+  it("stores _effW, _effH, _fixedHeight after loadMarkdownSources", async () => {
+    const container = makeContainer();
+    const tree = new ConceptTree(container, { physics: { preSettleIterations: 1 } });
+    await tree.loadMarkdownSources(SOURCES);
+    expect(tree._effW).toBeGreaterThan(0);
+    expect(tree._effH).toBeGreaterThan(0);
+    expect(typeof tree._fixedHeight).toBe("number");
+    tree.destroy();
+    container.remove();
+  });
+
+  it("ResizeObserver callback updates logW and recalculates fitParams", async () => {
+    let observerCallback;
+    const origRO = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = class MockRO {
+      constructor(cb) { observerCallback = cb; }
+      observe() {}
+      disconnect() {}
+    };
+
+    const container = makeContainer(); // clientWidth = 800
+    const tree = new ConceptTree(container, { physics: { preSettleIterations: 1 } });
+    await tree.loadMarkdownSources(SOURCES);
+
+    const originalFitK = tree._state.fitParams.k;
+
+    // Simulate resize to a wider container
+    Object.defineProperty(container, "clientWidth", { get: () => 1600, configurable: true });
+    // canvas pixel dimensions would differ — trigger the observer
+    observerCallback([{}]);
+
+    expect(tree._state.logW).toBe(1600);
+    // fitParams should have been refreshed (cx/cy exist, k is a positive number)
+    expect(tree._state.fitParams.k).toBeGreaterThan(0);
+    expect(tree._state.fitParams.cx).toBeDefined();
+
+    tree.destroy();
+    container.remove();
+    if (origRO) globalThis.ResizeObserver = origRO;
+    else delete globalThis.ResizeObserver;
+  });
+
+  it("maxZoom option is stored on state", async () => {
+    const container = makeContainer();
+    const tree = new ConceptTree(container, {
+      physics: { preSettleIterations: 1 },
+      maxZoom: 3.0,
+    });
+    await tree.loadMarkdownSources(SOURCES);
+    expect(tree._state.maxZoom).toBe(3.0);
+    tree.destroy();
+    container.remove();
+  });
+
+  it("window resize event updates logW and fitParams", async () => {
+    const container = makeContainer(); // clientWidth = 800
+    const tree = new ConceptTree(container, { physics: { preSettleIterations: 1 } });
+    await tree.loadMarkdownSources(SOURCES);
+
+    // Change the simulated container width
+    Object.defineProperty(container, "clientWidth", { get: () => 1400, configurable: true });
+    // Fire the native window resize event — our handler should pick this up
+    window.dispatchEvent(new Event("resize"));
+
+    expect(tree._state.logW).toBe(1400);
+    expect(tree._state.fitParams.k).toBeGreaterThan(0);
+    tree.destroy();
+    container.remove();
+  });
+
+  it("destroy removes window resize listener", async () => {
+    const container = makeContainer();
+    const tree = new ConceptTree(container, { physics: { preSettleIterations: 1 } });
+    await tree.loadMarkdownSources(SOURCES);
+    tree.destroy();
+
+    // After destroy, state is null — dispatching resize should not throw
+    Object.defineProperty(container, "clientWidth", { get: () => 999, configurable: true });
+    expect(() => window.dispatchEvent(new Event("resize"))).not.toThrow();
+    container.remove();
   });
 });

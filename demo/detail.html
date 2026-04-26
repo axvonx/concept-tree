@@ -5,7 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>concept-tree</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css">
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
 </head>
 <body>
   <div class="header" id="page-header">
@@ -20,8 +25,7 @@
         <option value="warm">warm</option>
         <option value="light">light</option>
       </select>
-      <button class="btn" onclick="history.back()">back</button>
-      <button class="btn btn-accent" onclick="location.href='/'">tree view</button>
+      <button class="btn" id="bookmark-btn" title="Bookmark this concept" style="font-size:16px;padding:2px 10px">☆</button>
     </div>
   </div>
 
@@ -64,9 +68,10 @@
   </script>
 
   <script type="module">
-    import { parseFrontmatter, buildConceptTree, renderMarkdown } from "/src/markdown.js";
+    import { parseFrontmatter, buildConceptTree, renderMarkdown, buildHeaderImageHtml } from "/src/markdown.js";
     import { ConceptTree } from "/src/index.js";
     import { TAG_COLORS, THEMES } from "/src/palette.js";
+    import { toggleBookmark, isBookmarked, getBookmarks } from "/src/bookmarks.js";
 
     const params    = new URLSearchParams(window.location.search);
     const conceptId = params.get("id");
@@ -108,21 +113,33 @@
 
     // ── Nav tree renderer ─────────────────────────────────────────────────────
 
+    // SVG chevron used in the toggle button (right-pointing, rotates to down when open)
+    const CHEVRON_SVG = `<svg viewBox="0 0 10 10" width="8" height="8" aria-hidden="true">
+      <polyline points="3,2 7,5 3,8" stroke="currentColor" stroke-width="1.5" fill="none"
+                stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>`;
+
     /**
      * Render the full concept tree as a collapsible nav list.
      * Tree lines use CSS pseudo-elements (v-line / tee / elbow).
      *
      * @param {Object[]} roots - array of concept tree nodes
-     * @param {string}   activeid - ID of currently viewed concept
+     * @param {string}   activeId - ID of currently viewed concept
      * @param {Map}      tagColors
-     * @returns {HTMLElement} <ul class="nav-tree">
+     * @returns {{ el, hoverHighlight }}
      */
     function renderNavTree(roots, activeId, tagColors) {
       const ul = document.getElementById("nav-tree");
       ul.innerHTML = "";
+      let _hoveredId = null;
 
-      // Collapsed state (depth >= 2 starts collapsed unless on the path)
+      // collapsed  — nodes whose children are currently hidden
+      // clickExpanded — nodes the user explicitly toggled open (persists after minimap hover clears)
+      // minimapExpanded — nodes opened by hoverHighlight (auto-closed when hover ends)
       const collapsed = new Set();
+      const clickExpanded = new Set();
+      const minimapExpanded = new Set();
+
       // Build active path (ancestors of current concept)
       const activePath = new Set();
       function findPath(node, path) {
@@ -141,7 +158,7 @@
       // Flatten tree into rows with connector information
       function flatten(node, depth, ancestorLast) {
         const rows = [];
-        const isLast = node._isLast; // set by parent
+        const isLast = node._isLast;
         rows.push({ node, depth, ancestorLast: [...ancestorLast], isLast });
         const kids = node.children || [];
         if (kids.length && !collapsed.has(node.id)) {
@@ -153,11 +170,10 @@
         return rows;
       }
 
-      // Auto-collapse nodes at depth >= 2 that aren't on the active path
+      // Auto-collapse nodes at depth >= 2 that aren't on the active path.
+      // Depth-0 roots and depth-1 nodes are always open.
       function markCollapsed(node, depth) {
-        if (depth >= 2 && !activePath.has(node.id)) {
-          collapsed.add(node.id);
-        }
+        if (depth >= 2 && !activePath.has(node.id)) collapsed.add(node.id);
         for (const child of (node.children || [])) markCollapsed(child, depth + 1);
       }
       for (const root of roots) {
@@ -165,16 +181,27 @@
         markCollapsed(root, 0);
       }
 
+      // Shared tooltip for nav row full-name preview (custom, not browser title attr)
+      const navTip = document.createElement("div");
+      navTip.className = "nav-tooltip";
+      // Append to sidebar so it can overflow its scroll area
+      ul.closest(".detail-nav-sidebar").appendChild(navTip);
+
+      function showNavTip(li, label) {
+        navTip.textContent = label;
+        const r = li.getBoundingClientRect();
+        const sr = ul.closest(".detail-nav-sidebar").getBoundingClientRect();
+        navTip.style.top  = `${r.top}px`;
+        navTip.style.left = `${sr.right + 6}px`;
+        navTip.classList.add("visible");
+      }
+      function hideNavTip() { navTip.classList.remove("visible"); }
+
       function buildRows() {
         ul.innerHTML = "";
-        for (const root of roots) {
-          root._isLast = roots.indexOf(root) === roots.length - 1;
-        }
+        for (let i = 0; i < roots.length; i++) roots[i]._isLast = i === roots.length - 1;
         const rows = [];
-        for (let i = 0; i < roots.length; i++) {
-          roots[i]._isLast = i === roots.length - 1;
-          rows.push(...flatten(roots[i], 0, []));
-        }
+        for (const root of roots) rows.push(...flatten(root, 0, []));
 
         for (const { node, depth, ancestorLast, isLast } of rows) {
           const li = document.createElement("li");
@@ -184,7 +211,6 @@
           // Connector cells (one per depth level)
           const connDiv = document.createElement("span");
           connDiv.className = "nav-row-connectors";
-          // Root nodes get left padding only
           if (depth === 0) {
             const sp = document.createElement("span");
             sp.style.width = "8px";
@@ -194,10 +220,8 @@
               const seg = document.createElement("span");
               seg.className = "nav-connector";
               if (d < depth - 1) {
-                // v-line at column d means the ancestor at depth d+1 is NOT last (has siblings below)
                 if (ancestorLast[d + 1]) seg.classList.add("v-line");
               } else {
-                // Last connector: tee (more siblings) or elbow (last child)
                 seg.classList.add(isLast ? "elbow" : "tee");
               }
               connDiv.appendChild(seg);
@@ -205,16 +229,31 @@
           }
           li.appendChild(connDiv);
 
-          // Toggle triangle (only for nodes with children)
-          const tog = document.createElement("span");
-          tog.className = "nav-row-toggle";
+          // Toggle chevron button — only for nodes with children.
+          // Clicking it toggles expand/collapse WITHOUT navigating.
           const hasKids = (node.children || []).length > 0;
-          if (hasKids) {
-            tog.textContent = collapsed.has(node.id) ? "▸" : "▾";
-          }
-          li.appendChild(tog);
+          const togBtn = document.createElement("button");
+          togBtn.className = "nav-row-toggle-btn" + (hasKids && !collapsed.has(node.id) ? " open" : "");
+          togBtn.setAttribute("aria-label", collapsed.has(node.id) ? "Expand" : "Collapse");
+          togBtn.innerHTML = hasKids ? CHEVRON_SVG : "";
+          const showToggle = hasKids && depth >= 2;
+          togBtn.style.visibility = showToggle ? "visible" : "hidden";
+          togBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            if (!hasKids) return;
+            if (collapsed.has(node.id)) {
+              collapsed.delete(node.id);
+              clickExpanded.add(node.id);
+              minimapExpanded.delete(node.id); // user took ownership
+            } else {
+              collapsed.add(node.id);
+              clickExpanded.delete(node.id);
+            }
+            buildRows();
+          });
+          li.appendChild(togBtn);
 
-          // Title — all nodes with tags get their tag color; active gets full opacity
+          // Title span — clicking navigates to the concept
           const titleSpan = document.createElement("span");
           titleSpan.className = "nav-row-title";
           const firstTag = (node.tags || [])[0];
@@ -223,17 +262,29 @@
             titleSpan.style.color = col;
             if (node.id !== activeId) titleSpan.style.opacity = "0.6";
           }
+
+          // Bookmark icon — shown only when the concept is bookmarked
+          if (isBookmarked(node.id)) {
+            const bmStar = document.createElement("span");
+            bmStar.className = "nav-bookmark-icon";
+            bmStar.textContent = "★";
+            const iconColor = col || "var(--accent)";
+            bmStar.style.color      = iconColor;
+            bmStar.style.textShadow = `0 0 6px ${iconColor}`;
+            li.appendChild(bmStar);
+          }
+
           titleSpan.textContent = node.title || node.id;
-          titleSpan.title = node.title || node.id;
           li.appendChild(titleSpan);
 
+          // Custom full-name tooltip on hover
+          const label = node.title || node.id;
+          li.addEventListener("mouseenter", () => showNavTip(li, label));
+          li.addEventListener("mouseleave", hideNavTip);
+
+          // Row click → navigate only (toggle arrow handles expand/collapse)
           li.addEventListener("click", (e) => {
             e.stopPropagation();
-            if (hasKids) {
-              if (collapsed.has(node.id)) collapsed.delete(node.id);
-              else collapsed.add(node.id);
-              buildRows();
-            }
             if (node.id !== activeId) {
               window.location.href = `/detail.html?id=${encodeURIComponent(node.id)}`;
             }
@@ -244,13 +295,63 @@
 
         // Scroll active row into view
         const activeEl = ul.querySelector(".nav-row.active");
-        if (activeEl) {
-          setTimeout(() => activeEl.scrollIntoView({ block: "nearest" }), 50);
-        }
+        if (activeEl) setTimeout(() => activeEl.scrollIntoView({ block: "nearest" }), 50);
       }
 
       buildRows();
-      return ul;
+
+      return {
+        el: ul,
+        rebuild: buildRows,
+        hoverHighlight(id) {
+          if (_hoveredId === id) return;
+          _hoveredId = id;
+
+          // Clear previous hover highlight
+          for (const el of ul.querySelectorAll(".nav-row.minimap-hover")) {
+            el.classList.remove("minimap-hover");
+          }
+
+          if (!id) {
+            // Collapse any nodes that were expanded only for the minimap highlight
+            let changed = false;
+            for (const nid of minimapExpanded) {
+              if (!clickExpanded.has(nid)) {
+                collapsed.add(nid);
+                changed = true;
+              }
+            }
+            minimapExpanded.clear();
+            if (changed) buildRows();
+            return;
+          }
+
+          // Expand ancestors of the target node if they are currently collapsed
+          let el = ul.querySelector(`[data-id="${CSS.escape(id)}"]`);
+          if (!el) {
+            function findAndExpand(node) {
+              if (node.id === id) return true;
+              for (const child of (node.children || [])) {
+                if (findAndExpand(child)) {
+                  if (collapsed.has(node.id)) {
+                    collapsed.delete(node.id);
+                    if (!clickExpanded.has(node.id)) minimapExpanded.add(node.id);
+                  }
+                  return true;
+                }
+              }
+              return false;
+            }
+            for (const root of roots) findAndExpand(root);
+            buildRows();
+            el = ul.querySelector(`[data-id="${CSS.escape(id)}"]`);
+          }
+          if (el) {
+            el.classList.add("minimap-hover");
+            el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+          }
+        },
+      };
     }
 
     // ── Main load ─────────────────────────────────────────────────────────────
@@ -272,7 +373,8 @@
         .forEach(([tag], i) => tagColors.set(tag, TAG_COLORS[i % TAG_COLORS.length]));
 
       // Render nav tree
-      renderNavTree(roots, conceptId, tagColors);
+      const navTree = renderNavTree(roots, conceptId, tagColors);
+      window._navTree = navTree;
 
       if (!conceptId) return;
 
@@ -287,6 +389,23 @@
       const title = meta.title || conceptId;
 
       document.title = `${title} — concept-tree`;
+
+      // Bookmark button
+      const bookmarkBtn = document.getElementById("bookmark-btn");
+      function updateBookmarkBtn() {
+        const bmd = isBookmarked(conceptId);
+        bookmarkBtn.textContent = bmd ? "★" : "☆";
+        bookmarkBtn.title = bmd ? "Remove bookmark" : "Bookmark this concept";
+        bookmarkBtn.style.color = bmd ? "#f59e0b" : "";
+      }
+      updateBookmarkBtn();
+      bookmarkBtn.addEventListener("click", () => {
+        toggleBookmark(conceptId);
+        updateBookmarkBtn();
+        // Sync minimap (if already loaded) and nav tree
+        if (window._miniTree) window._miniTree.setBookmarks(getBookmarks());
+        if (window._navTree) window._navTree.rebuild();
+      });
 
       // Apply node color to header accent
       const firstTag = (meta.tags || [])[0];
@@ -320,8 +439,7 @@
       let html = renderMarkdown(body, { concepts: conceptTitles });
 
       if (meta.image) {
-        html = `<img src="${meta.image}" alt="${title}"
-          style="max-width:280px;float:right;margin:0 0 14px 20px">` + html;
+        html = buildHeaderImageHtml(meta.image, title) + html;
       }
 
       const childLinks = (meta.links || [])
@@ -337,11 +455,23 @@
 
       contentEl.innerHTML = html;
 
+      // Render LaTeX math via KaTeX
+      if (typeof renderMathInElement !== "undefined") {
+        renderMathInElement(contentEl, {
+          delimiters: [
+            { left: "$$", right: "$$", display: true },
+            { left: "$",  right: "$",  display: false },
+          ],
+          throwOnError: false,
+        });
+      }
+
       // ── Minimap (top-right corner, focused on active node) ─────────────────
       const miniBody = document.getElementById("minimap-body");
       const miniTree = new ConceptTree(miniBody, {
         theme: savedTheme,
         dotMode: true,
+        maxZoom: 2.0,
         xStep: 55,
         yStep: 45,
         physics: {
@@ -352,12 +482,13 @@
       });
       window._miniTree = miniTree;
       await miniTree.loadMarkdownSources(allSources);
-      // Center on active node at ~2× the fit-all zoom so context is visible
+      miniTree.setBookmarks(getBookmarks());
+      // Center on active node at a moderate zoom so context is visible
       miniTree.setActiveNode(conceptId);
       const ms = miniTree._state;
       if (ms) {
         const mn = ms.simNodes.find(n => n.id === conceptId);
-        const focusK = Math.min((ms.fitParams?.k || 0.5) * 2.2, 1.6);
+        const focusK = Math.min((ms.fitParams?.k || 0.5) * 1.5, 1.0);
         ms.tr.k       = focusK;
         ms.trTarget.k = focusK;
         if (mn) {
@@ -370,6 +501,36 @@
 
       miniTree.on("nodeClick", (concept) => {
         window.location.href = `/detail.html?id=${encodeURIComponent(concept.id)}`;
+      });
+
+      // ── Minimap tooltip ───────────────────────────────────────────────────
+      // IMPORTANT: create the tooltip AFTER loadMarkdownSources, because
+      // ConceptTree._rebuild() calls container.innerHTML = "" which would
+      // delete any div we put inside minimap-body before initialization.
+      const _tip = document.createElement("div");
+      _tip.className = "minimap-tooltip";
+      miniBody.appendChild(_tip);
+
+      miniTree.on("nodeHover", (concept, _node, sx, sy) => {
+        navTree.hoverHighlight(concept.id);
+        // Position tooltip within minimap-body coordinate space (canvas fills 100%)
+        const bW = miniBody.clientWidth;
+        const bH = miniBody.clientHeight;
+        _tip.textContent = concept.title || concept.id;
+        const approxW = Math.min((_tip.textContent.length * 7) + 20, 220);
+        let tx = sx + 12;
+        let ty = sy - 32;
+        if (tx + approxW > bW - 4) tx = sx - approxW - 12;
+        if (ty < 4) ty = sy + 10;
+        if (ty + 28 > bH) ty = bH - 32;
+        _tip.style.left = `${tx}px`;
+        _tip.style.top  = `${ty}px`;
+        _tip.classList.add("visible");
+      });
+
+      miniTree.on("nodeUnhover", () => {
+        _tip.classList.remove("visible");
+        navTree.hoverHighlight(null);
       });
 
       // Collapse toggle

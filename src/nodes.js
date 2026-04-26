@@ -56,7 +56,7 @@ export function nodeDims(variant) {
 // Estimated average character widths and total horizontal padding per variant.
 const _CHAR_W = { card: 9.4, badge: 9.8, photo: 9.4, pill: 9.4 };
 const _PAD_X  = { card: 34,  badge: 40,  photo: 34,  pill: 44 };
-const _MAX_W  = { card: 340, badge: 380, photo: 320, pill: 260 };
+const _MAX_W  = { card: 340, badge: 380, photo: 320, pill: 300 };
 
 /**
  * Return dimensions for a variant, scaling by depth and expanding height
@@ -101,4 +101,71 @@ export function nodeDimsForTitle(variant, title, depth = 1) {
   const lineH       = Math.round(baseH * 0.35);
 
   return { w, h: baseH + (lines - 1) * lineH };
+}
+
+/**
+ * Re-measure node dimensions using actual canvas text metrics.
+ * Call this after buildGraph, using any CanvasRenderingContext2D (e.g. an offscreen canvas).
+ * Updates n.nw and n.nh in-place on each node.
+ *
+ * @param {CanvasRenderingContext2D} ctx
+ * @param {Array} nodes - sim nodes with .variant, .depth, .concept
+ */
+export function remeasureNodeDims(ctx, nodes) {
+  for (const n of nodes) {
+    if (n.variant === "photo") continue;
+    const depth   = n.depth || 0;
+    const scale   = nodeDepthScale(depth);
+    const raw     = NODE_VARIANTS[n.variant] || NODE_VARIANTS.pill;
+    const baseW   = Math.round(raw.w * scale);
+    const baseH   = Math.round(raw.h * scale);
+    const mx      = _MAX_W[n.variant] || 300;
+    const title   = n.concept?.title || n.id || "";
+
+    let titleSz, padX, fontWeight;
+    if (n.variant === "pill") {
+      titleSz    = baseH * 0.36;
+      padX       = (baseH / 2) * 0.6 + 2;  // rx * 0.6 + 2 (rx = baseH/2 for any line count)
+      fontWeight = "500";
+    } else if (n.variant === "card") {
+      titleSz    = baseH * 0.26;
+      padX       = 7;
+      fontWeight = "600";
+    } else if (n.variant === "badge") {
+      const HEADER_H = baseH * 0.38;
+      titleSz    = HEADER_H * 0.52;
+      padX       = 8;
+      fontWeight = "700";
+    } else {
+      continue;
+    }
+
+    ctx.font = `${fontWeight} ${titleSz}px Inter, Segoe UI, system-ui, sans-serif`;
+    const fullW = ctx.measureText(title).width;
+    const w     = Math.max(baseW, Math.min(Math.ceil(fullW + padX * 2), mx));
+
+    // Count wrap lines at the computed width
+    const availW = w - padX * 2;
+    let lines = 1;
+    if (fullW > availW && title.includes(" ")) {
+      const words = title.split(" ");
+      lines = 0;
+      let cur = "";
+      for (const word of words) {
+        const test = cur ? cur + " " + word : word;
+        if (ctx.measureText(test).width <= availW) {
+          cur = test;
+        } else {
+          lines++;
+          cur = word;
+        }
+      }
+      if (cur) lines++;
+      lines = Math.min(lines, 6);
+    }
+
+    const lineH = Math.round(baseH * 0.35);
+    n.nw = w;
+    n.nh = baseH + (lines - 1) * lineH;
+  }
 }

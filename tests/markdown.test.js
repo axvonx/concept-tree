@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseFrontmatter, buildConceptTree, bodySnippet, renderMarkdown, resolveWikiLinks } from "../src/markdown.js";
+import { parseFrontmatter, buildConceptTree, bodySnippet, renderMarkdown, resolveWikiLinks, buildHeaderImageHtml } from "../src/markdown.js";
 
 describe("parseFrontmatter", () => {
   it("returns body unchanged when no frontmatter", () => {
@@ -548,5 +548,401 @@ describe("renderMarkdown — embed / special content", () => {
     const html = renderMarkdown("![A](a.png)\n\n![B](b.png)");
     const matches = [...html.matchAll(/<img/g)];
     expect(matches.length).toBe(2);
+  });
+});
+
+// ── Tables (fallback renderer) ──────────────────────────────────────────────
+
+describe("renderMarkdown — tables (fallback)", () => {
+  it("renders a basic GFM table", () => {
+    const md = "| Name | Age |\n|------|-----|\n| Alice | 30 |\n| Bob | 25 |";
+    const html = renderMarkdown(md);
+    expect(html).toContain("<table>");
+    expect(html).toContain("<thead>");
+    expect(html).toContain("<tbody>");
+    expect(html).toContain("<th");
+    expect(html).toContain("Name");
+    expect(html).toContain("<td");
+    expect(html).toContain("Alice");
+    expect(html).toContain("Bob");
+  });
+
+  it("respects left alignment", () => {
+    const md = "| Col |\n|:----|\n| val |";
+    const html = renderMarkdown(md);
+    expect(html).toContain('text-align:left');
+  });
+
+  it("respects center alignment", () => {
+    const md = "| Col |\n|:---:|\n| val |";
+    const html = renderMarkdown(md);
+    expect(html).toContain('text-align:center');
+  });
+
+  it("respects right alignment", () => {
+    const md = "| Col |\n|----:|\n| val |";
+    const html = renderMarkdown(md);
+    expect(html).toContain('text-align:right');
+  });
+
+  it("handles multiple columns", () => {
+    const md = "| A | B | C |\n|---|---|---|\n| 1 | 2 | 3 |";
+    const html = renderMarkdown(md);
+    const thMatches = [...html.matchAll(/<th /g)];
+    const tdMatches = [...html.matchAll(/<td /g)];
+    expect(thMatches.length).toBe(3);
+    expect(tdMatches.length).toBe(3);
+  });
+
+  it("handles multiple data rows", () => {
+    const md = "| H |\n|---|\n| r1 |\n| r2 |\n| r3 |";
+    const html = renderMarkdown(md);
+    const trMatches = [...html.matchAll(/<tr>/g)];
+    // 1 header row + 3 data rows = 4 <tr>
+    expect(trMatches.length).toBe(4);
+  });
+
+  it("handles empty cells gracefully", () => {
+    const md = "| A | B |\n|---|---|\n| x |  |";
+    const html = renderMarkdown(md);
+    expect(html).toContain("<table>");
+    expect(html).toContain("x");
+  });
+
+  it("does not treat non-table pipe text as a table", () => {
+    const md = "This | is not | a table";
+    const html = renderMarkdown(md);
+    expect(html).not.toContain("<table>");
+  });
+});
+
+// ── Task lists (fallback renderer) ──────────────────────────────────────────
+
+describe("renderMarkdown — task lists (fallback)", () => {
+  it("renders checked task item", () => {
+    const html = renderMarkdown("- [x] completed task");
+    expect(html).toContain("task-list-item");
+    expect(html).toContain('type="checkbox"');
+    expect(html).toContain("checked");
+    expect(html).toContain("completed task");
+  });
+
+  it("renders unchecked task item", () => {
+    const html = renderMarkdown("- [ ] pending task");
+    expect(html).toContain("task-list-item");
+    expect(html).toContain('type="checkbox"');
+    expect(html).toContain("disabled");
+    expect(html).toContain("pending task");
+    // The checkbox itself should NOT have checked attribute
+    expect(html).not.toContain('disabled checked');
+  });
+
+  it("renders uppercase [X] as checked", () => {
+    const html = renderMarkdown("- [X] done");
+    expect(html).toContain("checked");
+  });
+
+  it("mixes task and normal list items", () => {
+    const md = "- [x] task one\n- normal item\n- [ ] task two";
+    const html = renderMarkdown(md);
+    const taskItems = [...html.matchAll(/task-list-item/g)];
+    expect(taskItems.length).toBe(2);
+    expect(html).toContain("normal item");
+    // Normal item should not be a task item
+    expect(html).toContain("<li>normal item</li>");
+  });
+
+  it("task checkboxes are disabled", () => {
+    const html = renderMarkdown("- [x] done\n- [ ] todo");
+    const checkboxes = [...html.matchAll(/<input[^>]*>/g)];
+    expect(checkboxes.length).toBe(2);
+    for (const cb of checkboxes) {
+      expect(cb[0]).toContain("disabled");
+    }
+  });
+});
+
+// ── Embeds (fallback renderer) ──────────────────────────────────────────────
+
+describe("renderMarkdown — embeds (fallback)", () => {
+  it("auto-embeds bare YouTube watch link", () => {
+    const html = renderMarkdown("[https://www.youtube.com/watch?v=dQw4w9WgXcQ](https://www.youtube.com/watch?v=dQw4w9WgXcQ)");
+    expect(html).toContain("md-embed");
+    expect(html).toContain("<iframe");
+    expect(html).toContain("youtube-nocookie.com/embed/dQw4w9WgXcQ");
+  });
+
+  it("auto-embeds bare youtu.be short link", () => {
+    const html = renderMarkdown("[https://youtu.be/dQw4w9WgXcQ](https://youtu.be/dQw4w9WgXcQ)");
+    expect(html).toContain("md-embed");
+    expect(html).toContain("youtube-nocookie.com/embed/dQw4w9WgXcQ");
+  });
+
+  it("auto-embeds bare Vimeo link", () => {
+    const html = renderMarkdown("[https://vimeo.com/123456](https://vimeo.com/123456)");
+    expect(html).toContain("md-embed");
+    expect(html).toContain("player.vimeo.com/video/123456");
+  });
+
+  it("does NOT embed YouTube link with custom text", () => {
+    const html = renderMarkdown("[Watch this](https://www.youtube.com/watch?v=dQw4w9WgXcQ)");
+    expect(html).not.toContain("<iframe");
+    expect(html).toContain("<a");
+    expect(html).toContain("Watch this");
+  });
+
+  it("does NOT embed non-video links", () => {
+    const html = renderMarkdown("[https://example.com](https://example.com)");
+    expect(html).not.toContain("<iframe");
+    expect(html).toContain("<a");
+  });
+
+  it("embed iframe has allowfullscreen", () => {
+    const html = renderMarkdown("[https://www.youtube.com/watch?v=abc12345678](https://www.youtube.com/watch?v=abc12345678)");
+    expect(html).toContain("allowfullscreen");
+  });
+
+  it("embed iframe has lazy loading", () => {
+    const html = renderMarkdown("[https://www.youtube.com/watch?v=abc12345678](https://www.youtube.com/watch?v=abc12345678)");
+    expect(html).toContain('loading="lazy"');
+  });
+});
+
+// ── Figures (fallback renderer) ─────────────────────────────────────────────
+
+describe("renderMarkdown — figures (fallback)", () => {
+  it("wraps image with alt text in a figure with figcaption", () => {
+    const html = renderMarkdown("![A nice diagram](diagram.png)");
+    expect(html).toContain("<figure");
+    expect(html).toContain("md-figure");
+    expect(html).toContain("<figcaption>A nice diagram</figcaption>");
+    expect(html).toContain('src="diagram.png"');
+  });
+
+  it("image without alt text does not get figure wrapper", () => {
+    const html = renderMarkdown("![](bare.png)");
+    expect(html).not.toContain("<figure");
+    expect(html).toContain("<img");
+    expect(html).toContain('src="bare.png"');
+  });
+
+  it("figures have lazy loading attribute", () => {
+    const html = renderMarkdown("![Caption](photo.jpg)");
+    expect(html).toContain('loading="lazy"');
+  });
+});
+
+// ── h4 headings (fallback renderer) ─────────────────────────────────────────
+
+describe("renderMarkdown — h4 headings (fallback)", () => {
+  it("converts #### to h4", () => {
+    const html = renderMarkdown("#### Sub-sub-heading");
+    expect(html).toContain("<h4>");
+    expect(html).toContain("Sub-sub-heading");
+  });
+
+  it("does not confuse h4 with h3", () => {
+    const html = renderMarkdown("### Three\n\n#### Four");
+    expect(html).toContain("<h3>Three</h3>");
+    expect(html).toContain("<h4>Four</h4>");
+  });
+});
+
+// ── Marked-based renderer (with globalThis.marked) ──────────────────────────
+
+describe("buildHeaderImageHtml", () => {
+  it("produces an img tag with the given src", () => {
+    const html = buildHeaderImageHtml("cover.png", "My Concept");
+    expect(html).toContain('<img');
+    expect(html).toContain('src="cover.png"');
+  });
+
+  it("uses the detail-header-img class for left-aligned block styling", () => {
+    const html = buildHeaderImageHtml("photo.jpg", "Title");
+    expect(html).toContain('class="detail-header-img"');
+  });
+
+  it("does not contain float:right", () => {
+    const html = buildHeaderImageHtml("img.png", "Title");
+    expect(html).not.toContain("float");
+  });
+
+  it("sets the alt attribute", () => {
+    const html = buildHeaderImageHtml("img.png", "Wave-Particle Duality");
+    expect(html).toContain('alt="Wave-Particle Duality"');
+  });
+
+  it("escapes double quotes in the alt text", () => {
+    const html = buildHeaderImageHtml("img.png", 'Say "hello"');
+    expect(html).toContain("&quot;");
+    expect(html).not.toContain('alt="Say "hello""');
+  });
+
+  it("handles empty alt gracefully", () => {
+    const html = buildHeaderImageHtml("img.png", "");
+    expect(html).toContain('alt=""');
+  });
+
+  it("handles null alt gracefully", () => {
+    const html = buildHeaderImageHtml("img.png", null);
+    expect(html).toContain('alt=""');
+  });
+});
+
+describe("renderMarkdown — marked path", () => {
+  let origMarked;
+
+  beforeAll(async () => {
+    origMarked = globalThis.marked;
+    const { marked } = await import("marked");
+    globalThis.marked = marked;
+  });
+
+  afterAll(() => {
+    if (origMarked === undefined) {
+      delete globalThis.marked;
+    } else {
+      globalThis.marked = origMarked;
+    }
+  });
+
+  it("renders bold text", () => {
+    const html = renderMarkdown("**bold**");
+    expect(html).toContain("<strong>bold</strong>");
+  });
+
+  it("renders italic text", () => {
+    const html = renderMarkdown("*italic*");
+    expect(html).toContain("<em>italic</em>");
+  });
+
+  it("renders bold inside list items", () => {
+    const html = renderMarkdown("- **bold item**\n- normal");
+    expect(html).toContain("<strong>bold item</strong>");
+    expect(html).toContain("normal");
+  });
+
+  it("renders italic inside list items", () => {
+    const html = renderMarkdown("- *emphasized*");
+    expect(html).toContain("<em>emphasized</em>");
+  });
+
+  it("renders inline code inside list items", () => {
+    const html = renderMarkdown("- use `console.log`");
+    expect(html).toContain("<code>console.log</code>");
+  });
+
+  it("renders GFM table", () => {
+    const md = "| A | B |\n|---|---|\n| 1 | 2 |";
+    const html = renderMarkdown(md);
+    expect(html).toContain("<table>");
+    expect(html).toContain("<th");
+    expect(html).toContain("<td");
+  });
+
+  it("renders task list with checked item", () => {
+    const html = renderMarkdown("- [x] done");
+    expect(html).toContain("task-list-item");
+    expect(html).toContain("checked");
+  });
+
+  it("renders task list with unchecked item", () => {
+    const html = renderMarkdown("- [ ] todo");
+    expect(html).toContain("task-list-item");
+    expect(html).toContain('type="checkbox"');
+  });
+
+  it("does not produce double checkboxes in task lists", () => {
+    const html = renderMarkdown("- [x] done\n- [ ] todo");
+    const checkboxes = [...html.matchAll(/<input[^>]*type="checkbox"[^>]*>/g)];
+    expect(checkboxes.length).toBe(2);
+  });
+
+  it("renders fenced code block with language class", () => {
+    const html = renderMarkdown("```python\nprint('hi')\n```");
+    expect(html).toContain("<pre>");
+    expect(html).toContain("<code");
+    expect(html).toContain("print");
+  });
+
+  it("renders fenced code block without language", () => {
+    const html = renderMarkdown("```\nplain code\n```");
+    expect(html).toContain("<pre>");
+    expect(html).toContain("plain code");
+  });
+
+  it("renders image with alt as figure", () => {
+    const html = renderMarkdown("![Caption](photo.png)");
+    expect(html).toContain("<figure");
+    expect(html).toContain("md-figure");
+    expect(html).toContain("<figcaption>Caption</figcaption>");
+  });
+
+  it("renders image without alt as plain img", () => {
+    const html = renderMarkdown("![](bare.png)");
+    expect(html).not.toContain("<figure");
+    expect(html).toContain("<img");
+  });
+
+  it("auto-embeds bare YouTube link", () => {
+    const html = renderMarkdown("[https://www.youtube.com/watch?v=dQw4w9WgXcQ](https://www.youtube.com/watch?v=dQw4w9WgXcQ)");
+    expect(html).toContain("md-embed");
+    expect(html).toContain("<iframe");
+    expect(html).toContain("youtube-nocookie.com/embed/dQw4w9WgXcQ");
+  });
+
+  it("does not embed YouTube link with custom text", () => {
+    const html = renderMarkdown("[My Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)");
+    expect(html).not.toContain("<iframe");
+    expect(html).toContain("<a");
+    expect(html).toContain("My Video");
+  });
+
+  it("auto-embeds bare Vimeo link", () => {
+    const html = renderMarkdown("[https://vimeo.com/999999](https://vimeo.com/999999)");
+    expect(html).toContain("md-embed");
+    expect(html).toContain("player.vimeo.com/video/999999");
+  });
+
+  it("preserves wiki links through marked path", () => {
+    const concepts = { "qm": "Quantum Mechanics" };
+    const html = renderMarkdown("See [[qm]] here.", { concepts });
+    expect(html).toContain('href="/detail.html?id=qm"');
+    expect(html).toContain("Quantum Mechanics");
+  });
+
+  it("renders headings", () => {
+    const html = renderMarkdown("# H1\n## H2\n### H3\n#### H4");
+    expect(html).toContain("<h1");
+    expect(html).toContain("<h2");
+    expect(html).toContain("<h3");
+    expect(html).toContain("<h4");
+  });
+
+  it("renders blockquote", () => {
+    const html = renderMarkdown("> a quote");
+    expect(html).toContain("<blockquote>");
+  });
+
+  it("renders strikethrough", () => {
+    const html = renderMarkdown("~~struck~~");
+    expect(html).toContain("<del>struck</del>");
+  });
+
+  it("renders horizontal rule", () => {
+    const html = renderMarkdown("---");
+    expect(html).toContain("<hr");
+  });
+
+  it("escapes HTML in fenced code blocks", () => {
+    const html = renderMarkdown("```\n<div>&</div>\n```");
+    expect(html).not.toContain("<div>");
+  });
+
+  it("bold and italic work inside task list items", () => {
+    const html = renderMarkdown("- [x] **bold** and *italic* task");
+    expect(html).toContain("<strong>bold</strong>");
+    expect(html).toContain("<em>italic</em>");
+    expect(html).toContain("task-list-item");
   });
 });

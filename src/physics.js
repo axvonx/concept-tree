@@ -33,7 +33,6 @@ export const DEFAULT_PHYSICS = {
   yStrength: 0.96,        // stronger y-anchoring to depth layers
   collideRadius: 6,       // added to hypot(NODE_W/2, NODE_H/2)
   collideStrength: 0.8,
-  trunkAlignStrength: 0.02, // gentle nudge only; alignTrunk pre-pass removed
   yOrderStrength: 0.06,   // gentle force keeping children below parents (linear mode)
   yOrderGap: 10,          // extra y gap (px) beyond combined half-heights
   radialOrderStrength: 0.08, // ensure children are farther from center than parents
@@ -48,13 +47,12 @@ export const DEFAULT_PHYSICS = {
  * @param {Object} params
  * @param {Array} params.nodes  - Simulation nodes (must have .bx, .by)
  * @param {Array} params.links  - { source, target } links
- * @param {Set}   params.trunkSet - Set of "parentId→childId" trunk edge keys
  * @param {Object} params.dims  - { nodeW, nodeH, xStep, yStep }
  * @param {Object} [params.physics] - Override DEFAULT_PHYSICS values
  * @param {boolean} [params.radial=false] - Use radial ordering instead of y-ordering
  * @returns {Promise<Object>} The d3 simulation instance
  */
-export async function createSimulation({ nodes, links, trunkSet, dims, physics = {}, radial = false }) {
+export async function createSimulation({ nodes, links, dims, physics = {}, radial = false }) {
   const d3 = await getD3Force();
   const cfg = { ...DEFAULT_PHYSICS, ...physics };
   const { nodeW, nodeH, xStep, yStep } = dims;
@@ -70,15 +68,6 @@ export async function createSimulation({ nodes, links, trunkSet, dims, physics =
     .force("collide", d3.forceCollide(
       n => Math.hypot((n.nw || nodeW) / 2, (n.nh || nodeH) / 2) + cfg.collideRadius
     ).strength(cfg.collideStrength))
-    .force("trunk-x", radial ? null : alpha => {
-      for (const lk of links) {
-        const s = lk.source, t = lk.target;
-        if (typeof s !== "object" || typeof t !== "object") continue;
-        if (trunkSet.has(`${s.id}→${t.id}`)) {
-          t.vx += (s.x - t.x) * cfg.trunkAlignStrength * alpha;
-        }
-      }
-    })
     .force("depth-order", radial
       // Radial mode: push children to larger radius than parents
       ? alpha => {

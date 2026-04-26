@@ -9,6 +9,7 @@ links:
   - electromagnetism
   - particle-physics
   - cosmology
+  - chaos-theory
 ---
 
 # Physics

@@ -5,7 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>concept-tree</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css">
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js"></script>
 </head>
 <body>
   <div class="header">
@@ -21,7 +23,6 @@
         <option value="light">light</option>
       </select>
       <button class="btn" id="btn-fit">fit</button>
-      <button class="btn btn-accent" id="btn-add">+ add</button>
     </div>
   </div>
 
@@ -56,29 +57,6 @@
         <button class="ctrl-btn" id="ctrl-zin"  title="Zoom in (+)">+</button>
         <button class="ctrl-btn" id="ctrl-zout" title="Zoom out (-)">−</button>
         <button class="ctrl-btn" id="ctrl-fit"  title="Fit all (F)">⊡</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Add concept modal -->
-  <div class="modal-backdrop" id="add-modal" style="display:none">
-    <div class="modal">
-      <h2>new concept</h2>
-      <label>ID (slug)</label>
-      <input type="text" id="new-id" placeholder="quantum-field-theory" autocomplete="off">
-      <label>Title</label>
-      <input type="text" id="new-title" placeholder="Quantum Field Theory">
-      <label>Tags (comma-separated)</label>
-      <input type="text" id="new-tags" placeholder="physics, quantum">
-      <label>Parent concept ID</label>
-      <input type="text" id="new-parent" placeholder="quantum-mechanics (optional)">
-      <label>Image URL</label>
-      <input type="text" id="new-image" placeholder="https://... (optional)">
-      <label>Body (markdown)</label>
-      <textarea id="new-body" placeholder="# Title&#10;&#10;Write content here..."></textarea>
-      <div class="modal-actions">
-        <button class="btn" id="modal-cancel">cancel</button>
-        <button class="btn btn-accent" id="modal-save">save</button>
       </div>
     </div>
   </div>

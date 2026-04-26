@@ -6,7 +6,7 @@ describe("DEFAULT_PHYSICS", () => {
     const keys = [
       "chargeStrength", "linkDistance", "linkStrength",
       "xStrength", "yStrength", "collideRadius", "collideStrength",
-      "trunkAlignStrength", "yOrderStrength", "yOrderGap",
+      "yOrderStrength", "yOrderGap",
       "alphaDecay", "preSettleIterations",
     ];
     for (const k of keys) {

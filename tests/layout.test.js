@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { treeLayout, buildGraph, detectTrunk, alignTrunk, buildGroups } from "../src/layout.js";
+import { treeLayout, buildGraph, buildGroups } from "../src/layout.js";
 
 // helpers
 function makeNode(id, children = []) {
@@ -148,52 +148,6 @@ describe("buildGraph", () => {
     const child2 = n2.find(n => n.id === "c2") || n2.find(n => n.id === "c1");
     // Child by value should differ with different yStep
     expect(child1.by).not.toBe(child2.by);
-  });
-});
-
-describe("detectTrunk", () => {
-  it("returns empty set for no nodes", () => {
-    expect(detectTrunk([], [])).toBeInstanceOf(Set);
-    expect(detectTrunk([], []).size).toBe(0);
-  });
-
-  it("marks the single edge as trunk for a two-node tree", () => {
-    const roots = [makeNode("p", [makeNode("c")])];
-    const { nodes, links } = buildGraph(roots);
-    const trunk = detectTrunk(nodes, links);
-    expect(trunk.has("p→c")).toBe(true);
-  });
-
-  it("selects the heavier child as trunk", () => {
-    // parent → [heavy (has children), light (leaf)]
-    const roots = [makeNode("p", [
-      makeNode("heavy", [makeNode("h1"), makeNode("h2")]),
-      makeNode("light"),
-    ])];
-    const { nodes, links } = buildGraph(roots);
-    const trunk = detectTrunk(nodes, links);
-    expect(trunk.has("p→heavy")).toBe(true);
-    expect(trunk.has("p→light")).toBe(false);
-  });
-});
-
-describe("alignTrunk", () => {
-  it("propagates parent bx to trunk child", () => {
-    const roots = [makeNode("p", [makeNode("c")])];
-    const { nodes, links } = buildGraph(roots);
-    const trunk = detectTrunk(nodes, links);
-    // Force parent bx to 999
-    nodes.find(n => n.id === "p").bx = 999;
-    alignTrunk(nodes, trunk);
-    expect(nodes.find(n => n.id === "c").bx).toBe(999);
-  });
-
-  it("does nothing when trunk is empty", () => {
-    const roots = [makeNode("a")];
-    const { nodes } = buildGraph(roots);
-    const before = nodes[0].bx;
-    alignTrunk(nodes, new Set());
-    expect(nodes[0].bx).toBe(before);
   });
 });
 

@@ -124,57 +124,6 @@ export function buildGraph(roots, opts = {}) {
 }
 
 /**
- * Detect trunk edges (parent → child with most descendants).
- * Returns a Set of "parentId→childId" strings.
- */
-export function detectTrunk(nodes, links) {
-  const childrenOf = new Map();
-  for (const lk of links) {
-    if (!childrenOf.has(lk.source)) childrenOf.set(lk.source, []);
-    childrenOf.get(lk.source).push(lk.target);
-  }
-
-  const descCount = new Map();
-  function countDesc(id) {
-    if (descCount.has(id)) return descCount.get(id);
-    const cs = childrenOf.get(id) || [];
-    let n = cs.length;
-    for (const c of cs) n += countDesc(c);
-    descCount.set(id, n);
-    return n;
-  }
-  for (const n of nodes) countDesc(n.id);
-
-  const trunk = new Set();
-  for (const [pid, children] of childrenOf) {
-    const best = children.reduce((a, b) =>
-      (descCount.get(b) || 0) > (descCount.get(a) || 0) ? b : a
-    );
-    trunk.add(`${pid}→${best}`);
-  }
-  return trunk;
-}
-
-/**
- * Propagate bx values down trunk chains so the main chain stays vertically aligned.
- */
-export function alignTrunk(nodes, trunkSet) {
-  const byId = new Map(nodes.map(n => [n.id, n]));
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const key of trunkSet) {
-      const [pid, cid] = key.split("→");
-      const p = byId.get(pid), c = byId.get(cid);
-      if (p && c && Math.abs(c.bx - p.bx) > 0.1) {
-        c.bx = p.bx;
-        changed = true;
-      }
-    }
-  }
-}
-
-/**
  * Build groups for blob animation. Each parent→children cluster is one group;
  * leaf nodes get their own solo group.
  */

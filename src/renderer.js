@@ -1,8 +1,7 @@
 /**
  * renderer.js — Canvas rendering for the concept tree.
  *
- * Draws group blobs, edges (trunk + branch), node cards, and the
- * breadcrumb/tag strip at the bottom.
+ * Draws group blobs, edges, node cards, and the bottom tag strip.
  *
  * Node variants:
  *   'card'  — default rectangular card
@@ -77,9 +76,11 @@ function nodeAnimSeed(id) {
 
 export function renderDots(ctx, state) {
   const {
-    logW, logH, dpr, tr, simNodes, simLinks, groups, trunkSet,
+    logW, logH, dpr, tr, simNodes, simLinks, groups,
     tagColors, highlightTags, activeId, hoverNodeId, dragNode,
     theme, animT,
+    bookmarks = new Set(),
+    highlightNodeIds = new Set(),
   } = state;
 
   const bg      = theme.bg;
@@ -130,23 +131,19 @@ export function renderDots(ctx, state) {
   for (const lk of simLinks) {
     const s = lk.source, t = lk.target;
     if (typeof s !== "object" || typeof t !== "object") continue;
-    const isTrunk = trunkSet.has(`${s.id}→${t.id}`);
-    const sTag = (s.concept.tags || [])[0] || "";
-    const tTag = (t.concept.tags || [])[0] || "";
-    const dimmed = highlightTags.size && !highlightTags.has(sTag) && !highlightTags.has(tTag);
+    const sTags = s.concept.tags || [];
+    const tTags = t.concept.tags || [];
+    const sTag = sTags[0] || "";
+    const tTag = tTags[0] || "";
+    const dimmed = highlightTags.size && !sTags.some(t => highlightTags.has(t)) && !tTags.some(t => highlightTags.has(t));
     const dotDx   = t.x - s.x;
     const dotDy   = t.y - s.y;
     const dotDist = Math.hypot(dotDx, dotDy) || 1;
     const dux = dotDx / dotDist, duy = dotDy / dotDist;
     const pull = Math.max(dotDist * 0.35, 10);
-    if (isTrunk) {
-      ctx.lineWidth = 2 / tr.k; ctx.strokeStyle = textDim;
-      ctx.globalAlpha = dimmed ? 0.08 : 0.55;
-    } else {
-      const col = tagColors.get(tTag) || tagColors.get(sTag) || textDim;
-      ctx.lineWidth = 1 / tr.k; ctx.strokeStyle = col;
-      ctx.globalAlpha = dimmed ? 0.05 : 0.35;
-    }
+    const col = tagColors.get(tTag) || tagColors.get(sTag) || textDim;
+    ctx.lineWidth = 1 / tr.k; ctx.strokeStyle = col;
+    ctx.globalAlpha = dimmed ? 0.05 : 0.35;
     ctx.beginPath();
     ctx.moveTo(s.x, s.y);
     ctx.bezierCurveTo(
@@ -167,13 +164,30 @@ export function renderDots(ctx, state) {
   ctx.textAlign    = "center";
 
   for (const n of simNodes) {
-    const isActive = n.id === activeId;
-    const isHover  = n.id === hoverNodeId || n === dragNode;
-    const nodeTag  = (n.concept.tags || [])[0] || "";
-    const tCol     = tagColors.get(nodeTag) || accent;
-    const isLit    = !highlightTags.size || highlightTags.has(nodeTag);
+    const isActive     = n.id === activeId;
+    const isHover      = n.id === hoverNodeId || n === dragNode;
+    const isBookmarked = bookmarks.has(n.id);
+    const nodeTag      = (n.concept.tags || [])[0] || "";
+    const tCol         = tagColors.get(nodeTag) || accent;
+    const hasTagFilter = highlightTags.size > 0;
+    const hasIdFilter  = highlightNodeIds.size > 0;
+    const isLit        = (!hasTagFilter && !hasIdFilter)
+      || (hasTagFilter && (n.concept.tags || []).some(t => highlightTags.has(t)))
+      || (hasIdFilter  && highlightNodeIds.has(n.id));
 
     ctx.globalAlpha = isLit ? 1 : 0.15;
+
+    // Bookmark glow ring (drawn before box so it appears behind)
+    if (isBookmarked) {
+      ctx.save();
+      ctx.shadowColor = tCol;
+      ctx.shadowBlur  = 6 / tr.k;
+      ctx.strokeStyle = rgba(tCol, 0.65);
+      ctx.lineWidth   = 1.2 / tr.k;
+      roundRect(ctx, n.x - mw / 2, n.y - mh / 2, mw, mh, mrx);
+      ctx.stroke();
+      ctx.restore();
+    }
 
     // Active pulse ring
     if (isActive) {
@@ -213,6 +227,28 @@ export function renderDots(ctx, state) {
     ctx.fillStyle = isActive ? "#fff" : rgba(tCol, 0.88);
     ctx.fillText(acronymLabel(n.concept.title || n.id), n.x, n.y);
 
+    // Tiny bookmark pip in the top-right corner of the mini box
+    if (isBookmarked) {
+      const pipW = mw * 0.22;
+      const pipH = mh * 0.38;
+      const px   = n.x + mw / 2 - pipW - 0.5 / tr.k;
+      const py   = n.y - mh / 2 + 0.5 / tr.k;
+      ctx.save();
+      ctx.shadowColor = tCol;
+      ctx.shadowBlur  = 5 / tr.k;
+      ctx.fillStyle   = tCol;
+      ctx.globalAlpha = 0.9;
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.lineTo(px + pipW, py);
+      ctx.lineTo(px + pipW, py + pipH);
+      ctx.lineTo(px + pipW / 2, py + pipH * 0.7);
+      ctx.lineTo(px, py + pipH);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
     ctx.globalAlpha = 1;
   }
 }
@@ -223,9 +259,11 @@ export function render(ctx, state) {
   if (state.dotMode) return renderDots(ctx, state);
 
   const {
-    logW, logH, dpr, tr, simNodes, simLinks, groups, trunkSet,
+    logW, logH, dpr, tr, simNodes, simLinks, groups,
     tagColors, highlightTags, activeId, hoverNodeId, focusedId, dragNode,
     theme, animT,
+    bookmarks = new Set(),
+    highlightNodeIds = new Set(),
   } = state;
 
   const bg      = theme.bg;
@@ -235,9 +273,19 @@ export function render(ctx, state) {
   const border  = theme.border;
   const accent  = theme.accent;
 
-  // ── Clear ─────────────────────────────────────────────────────────────────
+  // ── Clear (gradient background) ────────────────────────────────────────
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.fillStyle = bg;
+  if (state.gradient !== false) {
+    const grad = ctx.createRadialGradient(
+      logW * dpr * 0.5, logH * dpr * 0.4, 0,
+      logW * dpr * 0.5, logH * dpr * 0.4, Math.hypot(logW * dpr, logH * dpr) * 0.7,
+    );
+    grad.addColorStop(0, bg2);
+    grad.addColorStop(1, bg);
+    ctx.fillStyle = grad;
+  } else {
+    ctx.fillStyle = bg;
+  }
   ctx.fillRect(0, 0, logW * dpr, logH * dpr);
 
   ctx.setTransform(tr.k * dpr, 0, 0, tr.k * dpr, tr.tx * dpr, tr.ty * dpr);
@@ -301,59 +349,47 @@ export function render(ctx, state) {
   }
 
   // ── Edges ─────────────────────────────────────────────────────────────────
-  for (let pass = 0; pass < 2; pass++) {
-    for (const lk of simLinks) {
-      const s = lk.source, t = lk.target;
-      if (typeof s !== "object" || typeof t !== "object") continue;
-      const isTrunk = trunkSet.has(`${s.id}→${t.id}`);
-      if (isTrunk !== (pass === 1)) continue;
+  for (const lk of simLinks) {
+    const s = lk.source, t = lk.target;
+    if (typeof s !== "object" || typeof t !== "object") continue;
 
-      const sTag   = (s.concept.tags || [])[0] || "";
-      const tTag   = (t.concept.tags || [])[0] || "";
-      const dimmed = highlightTags.size && !highlightTags.has(sTag) && !highlightTags.has(tTag);
+    const sTags  = s.concept.tags || [];
+    const tTags  = t.concept.tags || [];
+    const sTag   = sTags[0] || "";
+    const tTag   = tTags[0] || "";
+    const dimmed = highlightTags.size && !sTags.some(t => highlightTags.has(t)) && !tTags.some(t => highlightTags.has(t));
 
-      // Direction-aware edge: works for radial (any angle) and linear layouts.
-      // Clip connection points to the rectangular node boundary surface.
-      const sHW = (s.nw || NODE_W) / 2, sHH = (s.nh || NODE_H) / 2;
-      const tHW = (t.nw || NODE_W) / 2, tHH = (t.nh || NODE_H) / 2;
+    const sHW = (s.nw || NODE_W) / 2, sHH = (s.nh || NODE_H) / 2;
+    const tHW = (t.nw || NODE_W) / 2, tHH = (t.nh || NODE_H) / 2;
 
-      const edgeDx   = t.x - s.x;
-      const edgeDy   = t.y - s.y;
-      const edgeDist = Math.hypot(edgeDx, edgeDy) || 1;
-      const ux = edgeDx / edgeDist;
-      const uy = edgeDy / edgeDist;
+    const edgeDx   = t.x - s.x;
+    const edgeDy   = t.y - s.y;
+    const edgeDist = Math.hypot(edgeDx, edgeDy) || 1;
+    const ux = edgeDx / edgeDist;
+    const uy = edgeDy / edgeDist;
 
-      // Distance to rectangle edge along this direction (axis-clipped)
-      const sClip = Math.min(sHW / (Math.abs(ux) || 1e-6), sHH / (Math.abs(uy) || 1e-6));
-      const tClip = Math.min(tHW / (Math.abs(ux) || 1e-6), tHH / (Math.abs(uy) || 1e-6));
+    const sClip = Math.min(sHW / (Math.abs(ux) || 1e-6), sHH / (Math.abs(uy) || 1e-6));
+    const tClip = Math.min(tHW / (Math.abs(ux) || 1e-6), tHH / (Math.abs(uy) || 1e-6));
 
-      const sx  = s.x + ux * sClip;
-      const sy0 = s.y + uy * sClip;
-      const tx  = t.x - ux * tClip;
-      const ty0 = t.y - uy * tClip;
+    const sx  = s.x + ux * sClip;
+    const sy0 = s.y + uy * sClip;
+    const tx  = t.x - ux * tClip;
+    const ty0 = t.y - uy * tClip;
 
-      const pull = Math.max(edgeDist * 0.35, 18);
+    const pull = Math.max(edgeDist * 0.35, 18);
+    const col  = tagColors.get(tTag) || tagColors.get(sTag) || textDim;
+    ctx.lineWidth   = 1.5 / tr.k;
+    ctx.strokeStyle = col;
+    ctx.globalAlpha = dimmed ? 0.05 : 0.42;
 
-      if (isTrunk) {
-        ctx.lineWidth   = 5 / tr.k;
-        ctx.strokeStyle = textDim;
-        ctx.globalAlpha = dimmed ? 0.08 : 0.6;
-      } else {
-        const col = tagColors.get(tTag) || tagColors.get(sTag) || textDim;
-        ctx.lineWidth   = 1.5 / tr.k;
-        ctx.strokeStyle = col;
-        ctx.globalAlpha = dimmed ? 0.05 : 0.42;
-      }
-
-      ctx.beginPath();
-      ctx.moveTo(sx, sy0);
-      ctx.bezierCurveTo(
-        sx + ux * pull, sy0 + uy * pull,
-        tx - ux * pull, ty0 - uy * pull,
-        tx, ty0,
-      );
-      ctx.stroke();
-    }
+    ctx.beginPath();
+    ctx.moveTo(sx, sy0);
+    ctx.bezierCurveTo(
+      sx + ux * pull, sy0 + uy * pull,
+      tx - ux * pull, ty0 - uy * pull,
+      tx, ty0,
+    );
+    ctx.stroke();
   }
   ctx.globalAlpha = 1;
 
@@ -361,24 +397,31 @@ export function render(ctx, state) {
   ctx.textBaseline = "middle";
 
   for (const n of simNodes) {
-    const isActive  = n.id === activeId;
-    const isFocused = n.id === focusedId;
-    const isHover   = n.id === hoverNodeId || n === dragNode;
-    const isDragged = n === dragNode;
-    const nodeTag   = (n.concept.tags || [])[0] || "";
-    const tCol      = tagColors.get(nodeTag) || text;
-    const isLit     = !highlightTags.size || highlightTags.has(nodeTag);
+    const isActive     = n.id === activeId;
+    const isFocused    = n.id === focusedId;
+    const isHover      = n.id === hoverNodeId || n === dragNode;
+    const isDragged    = n === dragNode;
+    const isBookmarked = bookmarks.has(n.id);
+    const nodeTag      = (n.concept.tags || [])[0] || "";
+    const tCol         = tagColors.get(nodeTag) || text;
+    const hasTagFilter  = highlightTags.size > 0;
+    const hasIdFilter   = highlightNodeIds.size > 0;
+    const isLit         = (!hasTagFilter && !hasIdFilter)
+      || (hasTagFilter && (n.concept.tags || []).some(t => highlightTags.has(t)))
+      || (hasIdFilter  && highlightNodeIds.has(n.id));
     const variant   = n.variant || "card";
     const nw        = n.nw || NODE_W;
     const nh        = n.nh || NODE_H;
 
     ctx.globalAlpha = isLit ? 1 : 0.15;
 
+    if (isBookmarked) _bookmarkGlow(ctx, n, nw, nh, tCol, tr);
+
     switch (variant) {
-      case "photo":  _drawPhotoNode(ctx, n, nw, nh, tCol, isActive, isHover, isDragged, isFocused, accent, bg, bg2, border, text, animT, tr); break;
-      case "badge":  _drawBadgeNode(ctx, n, nw, nh, tCol, isActive, isHover, isDragged, isFocused, accent, bg, bg2, border, text, animT, tr); break;
-      case "pill":   _drawPillNode (ctx, n, nw, nh, tCol, isActive, isHover, isDragged, isFocused, accent, bg, bg2, border, text, animT, tr); break;
-      default:       _drawCardNode (ctx, n, nw, nh, tCol, isActive, isHover, isDragged, isFocused, accent, bg, bg2, border, text, textDim, animT, tr); break;
+      case "photo":  _drawPhotoNode(ctx, n, nw, nh, tCol, isActive, isHover, isDragged, isFocused, accent, bg, bg2, border, text, animT, tr, isBookmarked); break;
+      case "badge":  _drawBadgeNode(ctx, n, nw, nh, tCol, isActive, isHover, isDragged, isFocused, accent, bg, bg2, border, text, animT, tr, isBookmarked); break;
+      case "pill":   _drawPillNode (ctx, n, nw, nh, tCol, isActive, isHover, isDragged, isFocused, accent, bg, bg2, border, text, animT, tr, isBookmarked); break;
+      default:       _drawCardNode (ctx, n, nw, nh, tCol, isActive, isHover, isDragged, isFocused, accent, bg, bg2, border, text, textDim, animT, tr, isBookmarked); break;
     }
 
     // Keyboard focus ring
@@ -423,6 +466,130 @@ export function render(ctx, state) {
     `${simNodes.length} concepts · depth ${maxDepth}`,
     12, stripY + STRIP_H - 9,
   );
+
+  // ── Hover tooltip ─────────────────────────────────────────────────────────
+  const tipNode = hoverNodeId ? simNodes.find(n => n.id === hoverNodeId) : null;
+  if (tipNode && state._tipX != null) {
+    const title   = tipNode.concept.title || tipNode.id;
+    const snippet = _tipSnippet(tipNode.concept.body);
+
+    const TIP_PAD   = 10;
+    const TIP_MAX_W = 220;
+    const TITLE_SZ  = 13;
+    const BODY_SZ   = 11;
+    const LINE_H    = BODY_SZ * 1.5;
+
+    ctx.font = `700 ${TITLE_SZ}px Inter, Segoe UI, system-ui, sans-serif`;
+    const titleW = Math.min(ctx.measureText(title).width, TIP_MAX_W - TIP_PAD * 2);
+
+    ctx.font = `${BODY_SZ}px Inter, Segoe UI, system-ui, sans-serif`;
+    const bodyLines = snippet ? _wrapTipText(ctx, snippet, TIP_MAX_W - TIP_PAD * 2, 3) : [];
+
+    const tipW = Math.max(titleW, ...bodyLines.map(l => ctx.measureText(l).width)) + TIP_PAD * 2;
+    const tipH = TIP_PAD * 2 + TITLE_SZ + (bodyLines.length ? TIP_PAD * 0.5 + bodyLines.length * LINE_H : 0);
+
+    // Position: offset from cursor, clamped to canvas
+    let tx = state._tipX + 14;
+    let ty = state._tipY - tipH - 8;
+    if (tx + tipW > logW - 4) tx = state._tipX - tipW - 14;
+    if (ty < 4) ty = state._tipY + 18;
+    if (ty + tipH > stripY - 4) ty = stripY - tipH - 4;
+
+    const isLight = bg && parseInt(bg.slice(1, 3), 16) > 150;
+    ctx.shadowColor   = isLight ? "rgba(0,0,0,0.12)" : "rgba(0,0,0,0.5)";
+    ctx.shadowBlur    = 12;
+    ctx.shadowOffsetY = 3;
+
+    // Background
+    ctx.beginPath();
+    _roundRectPath(ctx, tx, ty, tipW, tipH, 8);
+    ctx.fillStyle = bg2;
+    ctx.fill();
+
+    ctx.shadowColor = "transparent"; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+
+    // Border
+    ctx.beginPath();
+    _roundRectPath(ctx, tx, ty, tipW, tipH, 8);
+    ctx.strokeStyle = rgba(border, 0.9);
+    ctx.lineWidth   = 1;
+    ctx.stroke();
+
+    // Title
+    ctx.font      = `700 ${TITLE_SZ}px Inter, Segoe UI, system-ui, sans-serif`;
+    ctx.textAlign = "left";
+    ctx.fillStyle = text;
+    ctx.textBaseline = "top";
+    ctx.fillText(title, tx + TIP_PAD, ty + TIP_PAD);
+
+    // Body
+    if (bodyLines.length) {
+      ctx.font      = `${BODY_SZ}px Inter, Segoe UI, system-ui, sans-serif`;
+      ctx.fillStyle = textDim;
+      const bodyStartY = ty + TIP_PAD + TITLE_SZ + TIP_PAD * 0.5;
+      for (let i = 0; i < bodyLines.length; i++) {
+        ctx.fillText(bodyLines[i], tx + TIP_PAD, bodyStartY + i * LINE_H);
+      }
+    }
+
+    ctx.textBaseline = "alphabetic";
+  }
+}
+
+function _roundRectPath(ctx, x, y, w, h, r) {
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+function _tipSnippet(body, maxLen = 120) {
+  if (!body) return "";
+  const lines = body.split("\n");
+  const kept = [];
+  for (const l of lines) {
+    const t = l.trim();
+    if (!t || t.startsWith("#")) continue;
+    const clean = t
+      .replace(/!\[.*?\]\(.*?\)/g, "")
+      .replace(/\[([^\]]*)\]\(.*?\)/g, "$1")
+      .replace(/[*_`~]/g, "")
+      .trim();
+    if (!clean) continue;
+    kept.push(clean);
+    if (kept.join(" ").length >= maxLen) break;
+  }
+  const text = kept.join(" ").trim();
+  return text.length > maxLen ? text.slice(0, maxLen - 1) + "…" : text;
+}
+
+function _wrapTipText(ctx, text, maxW, maxLines) {
+  if (!text) return [];
+  if (ctx.measureText(text).width <= maxW) return [text];
+  const words = text.split(" ");
+  const lines = [];
+  let cur = "";
+  for (const word of words) {
+    const test = cur ? cur + " " + word : word;
+    if (ctx.measureText(test).width <= maxW) {
+      cur = test;
+    } else {
+      if (lines.length === maxLines - 1) {
+        lines.push(cur + (cur ? " " : "") + "…");
+        return lines;
+      }
+      if (cur) lines.push(cur);
+      cur = word;
+    }
+  }
+  if (cur && lines.length < maxLines) lines.push(cur);
+  return lines;
 }
 
 // ── Text wrapping helper ──────────────────────────────────────────────────────
@@ -476,11 +643,49 @@ function _wrapTitle(ctx, title, maxW, maxLines = 6) {
   return lines.length ? lines : [clipText(ctx, title, maxW)];
 }
 
+// ── Bookmark rendering ────────────────────────────────────────────────────────
+
+/**
+ * Draw a bookmark ribbon icon centered vertically at (x + iconW/2, centerY).
+ * x is the left edge of the icon. sz is the desired height.
+ */
+export function drawBookmarkFlag(ctx, x, centerY, sz, color, tr) {
+  const w = sz * 0.52;
+  const h = sz;
+  const y = centerY - h / 2;
+  ctx.save();
+  ctx.shadowColor = color;
+  ctx.shadowBlur  = 8 / tr.k;
+  ctx.fillStyle   = color;
+  ctx.globalAlpha = 0.88;
+  ctx.beginPath();
+  ctx.moveTo(x,         y);
+  ctx.lineTo(x + w,     y);
+  ctx.lineTo(x + w,     y + h);
+  ctx.lineTo(x + w / 2, y + h * 0.68);
+  ctx.lineTo(x,         y + h);
+  ctx.closePath();
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.restore();
+}
+
+function _bookmarkGlow(ctx, n, nw, nh, tCol, tr) {
+  ctx.save();
+  ctx.shadowColor  = tCol;
+  ctx.shadowBlur   = 14 / tr.k;
+  ctx.strokeStyle  = rgba(tCol, 0.45);
+  ctx.lineWidth    = 1.5 / tr.k;
+  roundRect(ctx, n.x - nw / 2, n.y - nh / 2, nw, nh, NODE_RX);
+  ctx.stroke();
+  ctx.restore();
+}
+
 // ── Node variant drawing helpers ──────────────────────────────────────────────
 
-function _shadow(ctx, n, nw, nh, isDragged, tr, bg) {
+function _shadow(ctx, n, nw, nh, isDragged, tr, bg, rx = NODE_RX) {
   const sOff = (isDragged ? 6 : 2) / tr.k;
-  roundRect(ctx, n.x - nw / 2 + sOff, n.y - nh / 2 + sOff, nw, nh, NODE_RX);
+  roundRect(ctx, n.x - nw / 2 + sOff, n.y - nh / 2 + sOff, nw, nh, rx);
   // Light themes: skip heavy drop shadow (it shows as an ugly dark box)
   const isLight = bg && parseInt(bg.slice(1, 3), 16) > 150;
   ctx.fillStyle = isLight ? "rgba(0,0,0,0.07)" : "rgba(0,0,0,0.45)";
@@ -500,7 +705,7 @@ function _activeBorder(ctx, n, nw, nh, accent, animT, tr) {
 // ── 'card' — default mid-tree card ───────────────────────────────────────────
 
 function _drawCardNode(ctx, n, nw, nh, tCol, isActive, isHover, isDragged, isFocused,
-                       accent, bg, bg2, border, text, textDim, animT, tr) {
+                       accent, bg, bg2, border, text, textDim, animT, tr, isBookmarked) {
   const lx = n.x - nw / 2, ty = n.y - nh / 2;
   const PAD_X = 7 / tr.k, availW = nw - PAD_X * 2;
 
@@ -550,17 +755,23 @@ function _drawCardNode(ctx, n, nw, nh, tCol, isActive, isHover, isDragged, isFoc
   }
 
   // Title (supports 2-line wrapping for long titles)
-  const titleSz = nh * 0.26;
-  ctx.font      = `600 ${titleSz}px Inter, Segoe UI, system-ui, sans-serif`;
-  ctx.textAlign = "left";
-  ctx.fillStyle = isActive ? "#fff" : rgba(tCol, 0.95);
-  const titleLines = _wrapTitle(ctx, n.concept.title || n.id, availW);
+  const titleSz  = nh * 0.26;
+  const iconOff  = isBookmarked ? titleSz * 0.56 + 3 / tr.k : 0;
+  ctx.font       = `600 ${titleSz}px Inter, Segoe UI, system-ui, sans-serif`;
+  ctx.textAlign  = "left";
+  ctx.fillStyle  = isActive ? "#fff" : rgba(tCol, 0.95);
+  const titleLines = _wrapTitle(ctx, n.concept.title || n.id, availW - iconOff);
+  const titleX     = lx + PAD_X + iconOff;
+  if (isBookmarked) {
+    const centerY1 = titleLines.length === 1 ? n.y - nh * 0.18 : n.y - nh * 0.33;
+    drawBookmarkFlag(ctx, lx + PAD_X, centerY1, titleSz, tCol, tr);
+  }
   if (titleLines.length === 1) {
-    ctx.fillText(titleLines[0], lx + PAD_X, n.y - nh * 0.18);
+    ctx.fillText(titleLines[0], titleX, n.y - nh * 0.18);
   } else {
     const lineH = titleSz * 1.25;
-    ctx.fillText(titleLines[0], lx + PAD_X, n.y - nh * 0.33);
-    ctx.fillText(titleLines[1], lx + PAD_X, n.y - nh * 0.33 + lineH);
+    ctx.fillText(titleLines[0], titleX, n.y - nh * 0.33);
+    ctx.fillText(titleLines[1], titleX, n.y - nh * 0.33 + lineH);
   }
 
   // Tag / depth
@@ -575,13 +786,13 @@ function _drawCardNode(ctx, n, nw, nh, tCol, isActive, isHover, isDragged, isFoc
 // ── 'badge' — root/important node ────────────────────────────────────────────
 
 function _drawBadgeNode(ctx, n, nw, nh, tCol, isActive, isHover, isDragged, isFocused,
-                        accent, bg, bg2, border, text, animT, tr) {
+                        accent, bg, bg2, border, text, animT, tr, isBookmarked) {
   const lx = n.x - nw / 2, ty = n.y - nh / 2;
   const HEADER_H = nh * 0.38;
   const PAD_X = 8 / tr.k, availW = nw - PAD_X * 2;
   const rx = NODE_RX + 2;
 
-  _shadow(ctx, n, nw, nh, isDragged, tr, bg);
+  _shadow(ctx, n, nw, nh, isDragged, tr, bg, rx);
 
   // Body background
   roundRect(ctx, lx, ty, nw, nh, rx);
@@ -621,12 +832,16 @@ function _drawBadgeNode(ctx, n, nw, nh, tCol, isActive, isHover, isDragged, isFo
 
   // Title in header
   const titleSz = HEADER_H * 0.52;
+  const iconOff = isBookmarked ? titleSz * 0.56 + 3 / tr.k : 0;
   ctx.font      = `700 ${titleSz}px Inter, Segoe UI, system-ui, sans-serif`;
   ctx.textAlign = "left";
   ctx.fillStyle = isActive ? "#fff" : rgba(text, 0.95);
+  if (isBookmarked) {
+    drawBookmarkFlag(ctx, lx + PAD_X, ty + HEADER_H / 2, titleSz, tCol, tr);
+  }
   ctx.fillText(
-    clipText(ctx, n.concept.title || n.id, availW),
-    lx + PAD_X,
+    clipText(ctx, n.concept.title || n.id, availW - iconOff),
+    lx + PAD_X + iconOff,
     ty + HEADER_H / 2,
   );
 
@@ -641,7 +856,7 @@ function _drawBadgeNode(ctx, n, nw, nh, tCol, isActive, isHover, isDragged, isFo
 // ── 'pill' — uniform capsule node, size scales with depth ────────────────────
 
 function _drawPillNode(ctx, n, nw, nh, tCol, isActive, isHover, isDragged, isFocused,
-                       accent, bg, bg2, border, text, animT, tr) {
+                       accent, bg, bg2, border, text, animT, tr, isBookmarked) {
   const lx = n.x - nw / 2, ty = n.y - nh / 2;
 
   // Base height at this depth — determines font size and corner radius
@@ -655,7 +870,7 @@ function _drawPillNode(ctx, n, nw, nh, tCol, isActive, isHover, isDragged, isFoc
   const seed = nodeAnimSeed(n.id);
   const wave = 0.5 + 0.5 * Math.sin(animT * seed.speed + seed.phase);
 
-  _shadow(ctx, n, nw, nh, isDragged, tr, bg);
+  _shadow(ctx, n, nw, nh, isDragged, tr, bg, rx);
 
   // Background
   roundRect(ctx, lx, ty, nw, nh, rx);
@@ -678,16 +893,28 @@ function _drawPillNode(ctx, n, nw, nh, tCol, isActive, isHover, isDragged, isFoc
     ctx.stroke();
   }
 
-  // Centered title — font based on single-line baseH, supports up to 6 lines
+  // Title — centered normally; with bookmark, icon+text group is centered as a unit
   const titleSz = baseH * 0.36;
   ctx.font      = `500 ${titleSz}px Inter, Segoe UI, system-ui, sans-serif`;
-  ctx.textAlign = "center";
   ctx.fillStyle = isActive ? "#fff" : rgba(tCol, 0.9);
-  const titleLines = _wrapTitle(ctx, n.concept.title || n.id, availW, 6);
-  const lineH = titleSz * 1.25;
+
+  const iconW   = isBookmarked ? titleSz * 0.52 + 3 / tr.k : 0;
+  const titleLines = _wrapTitle(ctx, n.concept.title || n.id, availW - iconW, 6);
+  const lineH   = titleSz * 1.25;
+  const textBlockW = Math.max(...titleLines.map(l => ctx.measureText(l).width));
+  const groupW  = iconW + textBlockW;
+  const groupX  = n.x - groupW / 2;
+
+  if (isBookmarked) {
+    const iconCenterY = n.y + (0.5 - titleLines.length / 2) * lineH;
+    drawBookmarkFlag(ctx, groupX, iconCenterY, titleSz, tCol, tr);
+  }
+
+  ctx.textAlign = "left";
+  const textX   = groupX + iconW;
   for (let i = 0; i < titleLines.length; i++) {
     const yOff = (i + 0.5 - titleLines.length / 2) * lineH;
-    ctx.fillText(titleLines[i], n.x, n.y + yOff);
+    ctx.fillText(titleLines[i], textX, n.y + yOff);
   }
   ctx.textAlign = "left";
 }
@@ -695,14 +922,14 @@ function _drawPillNode(ctx, n, nw, nh, tCol, isActive, isHover, isDragged, isFoc
 // ── 'photo' — node with image thumbnail ──────────────────────────────────────
 
 function _drawPhotoNode(ctx, n, nw, nh, tCol, isActive, isHover, isDragged, isFocused,
-                        accent, bg, bg2, border, text, animT, tr) {
+                        accent, bg, bg2, border, text, animT, tr, isBookmarked) {
   const lx = n.x - nw / 2, ty = n.y - nh / 2;
   const rx = NODE_RX + 1;
   const IMG_H  = PHOTO_IMG_H;
   const TEXT_H = nh - IMG_H;
   const PAD_X  = 7 / tr.k, availW = nw - PAD_X * 2;
 
-  _shadow(ctx, n, nw, nh, isDragged, tr, bg);
+  _shadow(ctx, n, nw, nh, isDragged, tr, bg, rx);
 
   // Card background
   roundRect(ctx, lx, ty, nw, nh, rx);
@@ -761,12 +988,16 @@ function _drawPhotoNode(ctx, n, nw, nh, tCol, isActive, isHover, isDragged, isFo
   // ── Text section ───────────────────────────────────────────────────────────
   // Title
   const titleSz = TEXT_H * 0.34;
+  const iconOff = isBookmarked ? titleSz * 0.56 + 3 / tr.k : 0;
   ctx.font      = `600 ${titleSz}px Inter, Segoe UI, system-ui, sans-serif`;
   ctx.textAlign = "left";
   ctx.fillStyle = isActive ? "#fff" : rgba(text, 0.95);
+  if (isBookmarked) {
+    drawBookmarkFlag(ctx, lx + PAD_X, ty + IMG_H + TEXT_H * 0.36, titleSz, tCol, tr);
+  }
   ctx.fillText(
-    clipText(ctx, n.concept.title || n.id, availW),
-    lx + PAD_X,
+    clipText(ctx, n.concept.title || n.id, availW - iconOff),
+    lx + PAD_X + iconOff,
     ty + IMG_H + TEXT_H * 0.36,
   );
 

@@ -45,7 +45,8 @@ export function nearestNode(sx, sy, state, hitScale = 1) {
 // ── Zoom helpers ─────────────────────────────────────────────────────────────
 
 export function zoomTo(factor, sx, sy, state) {
-  const k1 = Math.max(state.minZoom, Math.min(8, state.trTarget.k * factor));
+  const maxK = state.maxZoom ?? 8;
+  const k1 = Math.max(state.minZoom, Math.min(maxK, state.trTarget.k * factor));
   state.trTarget.tx = sx - (sx - state.trTarget.tx) * (k1 / state.trTarget.k);
   state.trTarget.ty = sy - (sy - state.trTarget.ty) * (k1 / state.trTarget.k);
   state.trTarget.k = k1;

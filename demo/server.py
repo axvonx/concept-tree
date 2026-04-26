@@ -74,28 +74,10 @@ class ConceptTreeHandler(http.server.BaseHTTPRequestHandler):
         self._respond(404, "text/plain", b"Not Found")
 
     def do_POST(self):
-        parsed = urlparse(self.path)
-        path = parsed.path
-
-        if path.startswith("/api/concept/"):
-            concept_id = path[len("/api/concept/"):]
-            length = int(self.headers.get("Content-Length", 0))
-            body = self.rfile.read(length).decode("utf-8")
-            self._save_concept(concept_id, body)
-            return
-
-        self._respond(404, "text/plain", b"Not Found")
+        self._respond(405, "text/plain", b"Method Not Allowed")
 
     def do_DELETE(self):
-        parsed = urlparse(self.path)
-        path = parsed.path
-
-        if path.startswith("/api/concept/"):
-            concept_id = path[len("/api/concept/"):]
-            self._delete_concept(concept_id)
-            return
-
-        self._respond(404, "text/plain", b"Not Found")
+        self._respond(405, "text/plain", b"Method Not Allowed")
 
     # ── API handlers ──────────────────────────────────────────────────────
 
@@ -121,26 +103,6 @@ class ConceptTreeHandler(http.server.BaseHTTPRequestHandler):
         with open(file_path, "r", encoding="utf-8") as f:
             content = f.read()
         self._respond_json({"id": safe_id, "source": content})
-
-    def _save_concept(self, concept_id, body):
-        """Create or update a concept markdown file."""
-        safe_id = concept_id.replace("/", "").replace("..", "")
-        CONCEPTS_DIR.mkdir(parents=True, exist_ok=True)
-        file_path = CONCEPTS_DIR / f"{safe_id}.md"
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write(body)
-        self._respond_json({"ok": True, "id": safe_id})
-
-    def _delete_concept(self, concept_id):
-        """Delete a concept markdown file."""
-        safe_id = concept_id.replace("/", "").replace("..", "")
-        file_path = CONCEPTS_DIR / f"{safe_id}.md"
-        if file_path.is_file():
-            file_path.unlink()
-            self._respond_json({"ok": True, "deleted": safe_id})
-        else:
-            self._respond(404, "application/json",
-                          json.dumps({"error": "not found"}).encode())
 
     def _serve_tags(self):
         """Return tag counts: { tag: count, ... }."""
@@ -196,6 +158,7 @@ class ConceptTreeHandler(http.server.BaseHTTPRequestHandler):
             ".md":   "text/markdown",
             ".png":  "image/png",
             ".jpg":  "image/jpeg",
+            ".gif":  "image/gif",
             ".svg":  "image/svg+xml",
             ".ico":  "image/x-icon",
         }
