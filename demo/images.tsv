@@ -1,12 +1,20 @@
 # url	dest
 # Each line: <image URL> TAB <output path relative to demo/images/>
 # Lines starting with # are ignored.
-https://upload.wikimedia.org/wikipedia/commons/thumb/4/48/Animal_cell_structure_en.svg/250px-Animal_cell_structure_en.svg.png	biology.png
-https://upload.wikimedia.org/wikipedia/commons/thumb/6/63/Benzene_Structural_diagram.svg/250px-Benzene_Structural_diagram.svg.png	chemistry.png
-https://upload.wikimedia.org/wikipedia/commons/4/4c/DNA_Structure%2BKey%2BLabelled.pn_NoBB.png	dna.png
-https://upload.wikimedia.org/wikipedia/commons/a/ae/Darwin%27s_finches_by_Gould.jpg	evolution.jpg
-https://upload.wikimedia.org/wikipedia/commons/1/18/Fibonacci_Spiral.png	mathematics.png
-https://upload.wikimedia.org/wikipedia/commons/d/d3/Newtons_cradle_animation_book_2.gif	physics.gif
-https://upload.wikimedia.org/wikipedia/commons/e/e7/Hydrogen_Density_Plots.png	quantum-mechanics.png
-https://upload.wikimedia.org/wikipedia/commons/thumb/6/63/Spacetime_lattice_analogy.svg/250px-Spacetime_lattice_analogy.svg.png	relativity.png
-https://upload.wikimedia.org/wikipedia/commons/1/13/A_Trajectory_Through_Phase_Space_in_a_Lorenz_Attractor.gif	chaos.gif
+https://upload.wikimedia.org/wikipedia/commons/c/ce/Electronic-Axial-Lead-Resistors-Array.png	analog.png
+https://upload.wikimedia.org/wikipedia/commons/thumb/5/58/Nand-gate-en.svg/1280px-Nand-gate-en.svg.png	digital.png
+https://upload.wikimedia.org/wikipedia/commons/thumb/7/7d/Breadboard_Numbered.jpg/400px-Breadboard_Numbered.jpg	breadboard.jpg
+https://upload.wikimedia.org/wikipedia/commons/thumb/9/97/Op-amp_symbol.svg/200px-Op-amp_symbol.svg.png	op-amp.png
+https://upload.wikimedia.org/wikipedia/commons/c/ce/Electronic-Axial-Lead-Resistors-Array.png	resistor.jpg
+https://upload.wikimedia.org/wikipedia/commons/thumb/b/b9/Capacitors_%287189597135%29.jpg/400px-Capacitors_%287189597135%29.jpg	capacitor.jpg
+https://upload.wikimedia.org/wikipedia/commons/thumb/8/8d/Electronic_component_inductors.jpg/400px-Electronic_component_inductors.jpg	inductor.jpg
+https://upload.wikimedia.org/wikipedia/commons/thumb/a/aa/Altera_Stratix_IV.jpg/400px-Altera_Stratix_IV.jpg	fpga.jpg
+https://upload.wikimedia.org/wikipedia/commons/thumb/5/58/Nand-gate-en.svg/400px-Nand-gate-en.svg.png	74hc00.jpg
+https://upload.wikimedia.org/wikipedia/commons/thumb/3/38/Arduino_Uno_-_R3.jpg/400px-Arduino_Uno_-_R3.jpg	arduino-uno.jpg
+https://upload.wikimedia.org/wikipedia/commons/thumb/f/f1/Raspberry_Pi_4_Model_B_-_Side.jpg/400px-Raspberry_Pi_4_Model_B_-_Side.jpg	raspberry-pi.jpg
+https://upload.wikimedia.org/wikipedia/commons/thumb/d/d9/Raspberry_Pi_Pico_top_of_board_%28cropped%29.jpg/400px-Raspberry_Pi_Pico_top_of_board_%28cropped%29.jpg	pico.jpg
+https://upload.wikimedia.org/wikipedia/commons/thumb/2/20/ESP32_Espressif_ESP-WROOM-32_Dev_Board.jpg/400px-ESP32_Espressif_ESP-WROOM-32_Dev_Board.jpg	esp32.jpg
+https://upload.wikimedia.org/wikipedia/commons/thumb/5/5a/STM32F746GDiscovery.jpg/400px-STM32F746GDiscovery.jpg	stm32.jpg
+https://upload.wikimedia.org/wikipedia/commons/thumb/6/66/IceBreakerFPGABoard.jpg/400px-IceBreakerFPGABoard.jpg	ice40.jpg
+https://upload.wikimedia.org/wikipedia/commons/thumb/4/48/BeagleBone_Black.jpg/400px-BeagleBone_Black.jpg	beaglebone.jpg
+https://upload.wikimedia.org/wikipedia/commons/thumb/5/55/Nordic_nRF52840-DK.jpg/400px-Nordic_nRF52840-DK.jpg	nrf52840.jpg
