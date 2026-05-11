@@ -15,4 +15,4 @@ The **NUCLEO-F446RE** features the STM32F446 (Cortex-M4, 180MHz, FPU) with 512KB
 **Flash:** 512 KB  
 **RAM:** 128 KB  
 **Debug:** Embedded ST-LINK/V2-1 (SWD/JTAG)  
-**Buy:** [Mouser](https://www.mouser.com/ProductDetail/STMicroelectronics/NUCLEO-F446RE) · [DigiKey](https://www.digikey.com/en/products/detail/stmicroelectronics/NUCLEO-F446RE/5051137)
+**Buy:** [Mouser](https://www.mouser.com/ProductDetail/STMicroelectronics/NUCLEO-F446RE) · [DigiKey](https://www.digikey.com/en/products/detail/stmicroelectronics/NUCLEO-F446RE/5347712)

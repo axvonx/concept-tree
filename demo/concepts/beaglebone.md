@@ -15,4 +15,4 @@ This makes the BeagleBone uniquely suited for industrial and robotics applicatio
 **RAM:** 512 MB DDR3  
 **Flash:** 4 GB eMMC  
 **PRUs:** 2× 200 MHz real-time coprocessors  
-**Buy:** [Digi-Key](https://www.digikey.com/en/products/detail/beagleboard-by-seeed-studio/102110420/12719751) · [Mouser](https://www.mouser.com/ProductDetail/BeagleBoard-by-Seeed-Studio/102110420)
+**Buy:** [Digi-Key](https://www.digikey.com/en/products/detail/beagleboard/102110420/12719590) · [Mouser](https://www.mouser.com/ProductDetail/BeagleBoard-by-Seeed-Studio/102110420)

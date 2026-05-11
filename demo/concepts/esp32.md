@@ -15,4 +15,4 @@ The ESP32 DevKit breakout board adds USB-serial (CP2102), 3.3V LDO, and breaks o
 **RAM:** 520 KB SRAM  
 **Radio:** Wi-Fi 802.11 b/g/n + Bluetooth 4.2 (Classic + BLE)  
 **GPIO:** 34 pins  
-**Buy:** [Adafruit](https://www.adafruit.com/product/3405) · [Amazon](https://www.amazon.com/dp/B08D5ZD528)
+**Buy:** [Adafruit](https://www.adafruit.com/product/3269) · [Amazon](https://www.amazon.com/dp/B08D5ZD528)
